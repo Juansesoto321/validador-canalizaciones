@@ -280,7 +280,7 @@
 <div class="crit"><span class="cs E">ERROR</span><span>Documento de extranjería (CE, TE, Salvoconducto, PEP, Carné Diplomático, PPT): la población especial/diferencial debe ser "21 · Migrante Internacional".</span></div>
 <div class="crit"><span class="cs E">ERROR</span><span>Coherencia sexo-género: "Hombre + Femenino" y "Mujer + Masculino" no son combinaciones válidas; para personas transgénero el género debe ser "6 · Transgénero".</span></div>
 <div class="crit"><span class="cs E">ERROR</span><span>Usuario con sexo "Intersexual" o género "Transgénero": la observación debe confirmarlo expresamente.</span></div>
-<div class="crit"><span class="cs E">ERROR</span><span>El campo Gestante solo admite Si o No; y no puede haber edad gestacional sin Gestante = Si.</span></div>
+<div class="crit"><span class="cs E">ERROR</span><span>El campo Gestante solo admite 1 (Si) o 2 (No); y no puede haber edad gestacional sin Gestante = Si.</span></div>
 <div class="crit"><span class="cs E">ERROR</span><span>Estado civil: hasta 13 años debe ser "No aplica"; de 14 en adelante debe registrar un estado civil (mínimo Soltero/a).</span></div>
 <div class="crit"><span class="cs E">ERROR</span><span>Gestante solo en mujeres de 10 a 50 años (no primera infancia ni vejez), con edad gestacional obligatoria entre 1 y 42 semanas.</span></div>
 <div class="crit"><span class="cs A">AVISO</span><span>Nivel educativo coherente con la edad (0-3 "No aplica" · 4-5 Preescolar · 6-11 primaria · 12-17 secundaria).</span></div>
@@ -388,6 +388,10 @@ function leerFicha(wb){
   const p3 = seg.slice(10,12).filter(Boolean).join(" ");
   const p4 = seg.slice(12,16).filter(Boolean).join(" ");
   f.dirFull = p1 + (p2? " # "+p2 : "") + (p3? " - "+p3 : "") + (p4? " "+p4 : "");
+  const g = f.gestante.replace(/\.0$/,"").toLowerCase();
+  f.gestSi = g==="1"||g==="si"||g==="sí";
+  f.gestNo = g==="2"||g==="no";
+  f.gestTxt = f.gestSi? (g==="1"?"1 · Si":"Si") : f.gestNo? (g==="2"?"2 · No":"No") : f.gestante.replace(/\.0$/,"");
   return f;
 }
 
@@ -536,12 +540,11 @@ function validar(f, cfg){
   if(td===2 && f.pobEsp!==null && f.pobEsp!==21 && f.nacion && f.nacion!=="COL")
     A("AE17","Identificación","Pasaporte con nacionalidad extranjera: verifique si la población especial/diferencial debe ser \"21 · Migrante Internacional\".");
 
-  const ges = f.gestante.toLowerCase();
-  if(f.gestante && !["si","sí","no"].includes(ges))
-    E("AK17","Identificación",`El campo Gestante tiene un valor no válido ("${f.gestante}"): solo admite Si o No.`);
-  if(f.edadGest!==null && ges!=="si" && ges!=="sí")
-    E("AT17","Identificación","Hay edad gestacional diligenciada sin marcar Gestante = Si.");
-  if(ges==="si" || ges==="sí"){
+  if(f.gestante && !f.gestSi && !f.gestNo)
+    E("AK17","Identificación",`El campo Gestante tiene un valor no válido ("${f.gestante}"): solo admite 1 (Si) o 2 (No).`);
+  if(f.edadGest!==null && !f.gestSi)
+    E("AT17","Identificación","Hay edad gestacional diligenciada sin marcar Gestante = Si (1).");
+  if(f.gestSi){
     if(f.sexo!==null && f.sexo!==5) E("AK17","Identificación","Gestante marcada en usuario con sexo distinto de Mujer.");
     if(edad && (edad.anios<10||edad.anios>50)) E("AK17","Identificación",`Gestante con edad ${edad.anios} años: solo aplica entre 10 y 50.`);
     if(f.mcv===1||f.mcv===6) E("AK17","Identificación","Gestante no permitida en primera infancia ni vejez.");
@@ -662,7 +665,7 @@ function validar(f, cfg){
           if(/mamograf/.test(low) && edad.anios<50) A(cel("AT"),"Necesidad",`Motivo de mamografía en usuario de ${edad.anios} años: aplica desde los 50.`);
           if(/(citolog|vph)/.test(low) && edad.anios<25) A(cel("AT"),"Necesidad",`Motivo de tamizaje cuello uterino en usuario de ${edad.anios} años: aplica desde los 25.`);
         }
-        if(rt.r===9 && edad && !(ges==="si"||ges==="sí") && edad.anios>1)
+        if(rt.r===9 && edad && !f.gestSi && edad.anios>1)
           A(cel("S"),"Necesidad","Ruta 9 (materno perinatal) en usuario que no es gestante ni neonato: verifique (aplica a gestantes, puérperas y recién nacidos).");
       }
     }
@@ -782,7 +785,7 @@ function fld(r, label, valor, keys, opts){
 
 function renderFormato(r){
   const f = r.f;
-  const ges = f.gestante || "";
+  const ges = f.gestTxt || "";
   const eapbTxt = f.regimen===4 && f.eapb===1 ? "1 · Ninguno" : cod(CAT.eapbGeneral, f.eapb);
   const modChip = (on, nombre)=>`<span class="mchip${on?" on":""}">${on?"✔ ":""}${nombre}</span>`;
   const mEAPB = (f.modEAPB||"").toLowerCase().startsWith("si");
