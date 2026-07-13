@@ -1,0 +1,1260 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Validador de Calidad — Instrumento de Canalización</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+<style>
+  :root{
+    --petrol:#0B4F5F; --petrol-d:#083A46; --ink:#1B2B31; --bg:#EEF3F4;
+    --card:#FFFFFF; --line:#D5E0E3; --ok:#177245; --ok-bg:#E7F3EC;
+    --err:#B23A32; --err-bg:#F9ECEA; --warn:#A66A00; --warn-bg:#FBF3E2;
+    --muted:#5B7077; --chip:#F0F5F6; --focus:#1B7F9E;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{font-family:"Segoe UI", system-ui, -apple-system, sans-serif; background:var(--bg); color:var(--ink); font-size:15px; line-height:1.45;}
+  .mono{font-family:Consolas, "Courier New", monospace;}
+  .eyebrow{font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--muted); font-weight:600;}
+
+  header{background:var(--petrol); color:#fff; padding:18px 28px; display:flex; flex-wrap:wrap; gap:14px; align-items:center; justify-content:space-between;}
+  header .brand h1{font-size:19px; font-weight:650; letter-spacing:.01em;}
+  header .brand p{font-size:12.5px; opacity:.82; margin-top:2px;}
+  .cfg{display:flex; gap:14px; align-items:center; font-size:13px;}
+  .cfg label{opacity:.9;}
+  .cfg input[type=text]{width:88px; padding:5px 8px; border:none; border-radius:6px; font-family:Consolas,monospace; font-size:13px; text-align:center;}
+  .cfg .chk{display:flex; align-items:center; gap:6px; background:rgba(255,255,255,.12); padding:5px 10px; border-radius:6px;}
+
+  main{max-width:1060px; margin:26px auto 80px; padding:0 20px;}
+
+  #drop{border:2.5px dashed #9DB8BF; border-radius:14px; background:var(--card); padding:44px 24px; text-align:center; cursor:pointer; transition:all .15s;}
+  #drop.over{border-color:var(--focus); background:#EAF5F9;}
+  #drop .big{font-size:17px; font-weight:600; color:var(--petrol);}
+  #drop .sub{color:var(--muted); font-size:13.5px; margin-top:6px;}
+  #drop .icon{font-size:34px; margin-bottom:8px;}
+
+  #summary{display:none; grid-template-columns:repeat(4,1fr); gap:12px; margin:20px 0;}
+  .stat{background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px 18px;}
+  .stat .n{font-size:30px; font-weight:700; font-variant-numeric:tabular-nums;}
+  .stat .l{font-size:12px; color:var(--muted); letter-spacing:.08em; text-transform:uppercase; font-weight:600;}
+  .stat.ok .n{color:var(--ok);} .stat.err .n{color:var(--err);} .stat.warn .n{color:var(--warn);}
+
+  #toolbar{display:none; justify-content:space-between; align-items:center; margin:6px 0 14px;}
+  .btn{background:var(--petrol); color:#fff; border:none; border-radius:8px; padding:9px 16px; font-size:13.5px; font-weight:600; cursor:pointer;}
+  .btn:hover{background:var(--petrol-d);}
+  .btn.ghost{background:#fff; color:var(--petrol); border:1.5px solid var(--petrol);}
+  .btn.sm{padding:6px 11px; font-size:12.5px;}
+
+  .card{background:var(--card); border:1px solid var(--line); border-radius:12px; margin-bottom:14px; overflow:hidden;}
+  .card-head{display:flex; align-items:center; gap:14px; padding:14px 18px; cursor:pointer;}
+  .rail{width:6px; align-self:stretch; flex:none;}
+  .card.v-ok .rail{background:var(--ok);} .card.v-err .rail{background:var(--err);} .card.v-warn .rail{background:var(--warn);}
+  .who{flex:1; min-width:0;}
+  .who .nm{font-weight:650; font-size:15.5px;}
+  .who .fl{font-size:12.5px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .who .dc{font-size:12.5px; color:var(--muted);}
+  .counts{display:flex; gap:8px; flex:none;}
+  .pill{font-size:12px; font-weight:700; border-radius:20px; padding:3px 10px;}
+  .pill.e{background:var(--err-bg); color:var(--err);} .pill.w{background:var(--warn-bg); color:var(--warn);}
+
+  .stamp{flex:none; width:88px; height:88px; border-radius:50%; border:3px double currentColor; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; font-weight:800; font-size:10.5px; letter-spacing:.1em; transform:rotate(-8deg); user-select:none;}
+  .stamp .st-top{font-size:9px; font-weight:600; letter-spacing:.16em;}
+  .v-ok .stamp{color:var(--ok);} .v-err .stamp{color:var(--err);} .v-warn .stamp{color:var(--warn);}
+
+  .card-body{display:none; border-top:1px solid var(--line); padding:16px 18px 20px;}
+  .card.open .card-body{display:block;}
+
+  .issue{display:flex; gap:10px; padding:8px 10px; border-radius:8px; margin-bottom:6px; font-size:13.5px; align-items:baseline;}
+  .issue.e{background:var(--err-bg);} .issue.a{background:var(--warn-bg);}
+  .issue .tag{flex:none; font-size:10.5px; font-weight:800; letter-spacing:.08em; padding:2px 7px; border-radius:5px; color:#fff;}
+  .issue.e .tag{background:var(--err);} .issue.a .tag{background:var(--warn);}
+  .issue .cell{flex:none; font-family:Consolas,monospace; font-size:12px; background:#fff; border:1px solid var(--line); border-radius:5px; padding:1px 6px; color:var(--muted);}
+  .allok{background:var(--ok-bg); color:var(--ok); font-weight:600; padding:10px 14px; border-radius:8px; font-size:14px;}
+
+  .verif{margin-top:18px; border:1.5px solid var(--petrol); border-radius:10px;}
+  .verif-h{background:var(--petrol); color:#fff; padding:9px 14px; font-size:13px; font-weight:700; letter-spacing:.05em; display:flex; justify-content:space-between; align-items:center;}
+  .verif-b{padding:14px;}
+  .vdata{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin-bottom:12px;}
+  .vd{background:var(--chip); border-radius:8px; padding:8px 12px;}
+  .vd .k{font-size:10.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); font-weight:700;}
+  .vd .v{font-weight:650; font-size:14.5px; word-break:break-word;}
+  .vbtns{display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px;}
+  .vchecks{display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:8px;}
+  .vc{display:flex; align-items:center; justify-content:space-between; gap:8px; background:#fff; border:1px solid var(--line); border-radius:8px; padding:7px 10px; font-size:13px;}
+  .vc select{border:1px solid var(--line); border-radius:6px; padding:4px 6px; font-size:12.5px; background:#fff;}
+  .vc select.s-ok{background:var(--ok-bg); color:var(--ok); font-weight:700;}
+  .vc select.s-bad{background:var(--err-bg); color:var(--err); font-weight:700;}
+  .vnote{margin-top:10px; font-size:12.5px; color:var(--muted); background:var(--warn-bg); border-radius:8px; padding:8px 12px;}
+  .vobs{margin-top:10px;}
+  .vobs textarea{width:100%; border:1px solid var(--line); border-radius:8px; padding:8px 10px; font-size:13px; font-family:inherit; resize:vertical; min-height:44px;}
+  .copied{color:var(--ok); font-weight:700; font-size:12px; margin-left:6px;}
+
+  footer{max-width:1060px; margin:0 auto; padding:0 20px 40px; color:var(--muted); font-size:12px;}
+  @media (max-width:640px){ #summary{grid-template-columns:repeat(2,1fr);} .stamp{display:none;} }
+
+  .tabs{display:flex; gap:6px; border-bottom:2px solid var(--line); margin-bottom:14px; flex-wrap:wrap;}
+  .tab{background:none; border:none; padding:8px 14px; font-size:13.5px; font-weight:650; color:var(--muted); cursor:pointer; border-bottom:3px solid transparent; margin-bottom:-2px;}
+  .tab.on{color:var(--petrol); border-bottom-color:var(--petrol);}
+  .pane{display:none;} .pane.on{display:block;}
+  .form-view{border:1px solid var(--line); border-radius:10px; overflow:hidden;}
+  .fsec{background:var(--petrol); color:#fff; font-size:12px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; padding:7px 12px;}
+  .fgrid{display:grid; gap:1px; background:var(--line);}
+  .fgrid.g4{grid-template-columns:repeat(4,1fr);} .fgrid.g3{grid-template-columns:repeat(3,1fr);}
+  .fgrid.g2{grid-template-columns:repeat(2,1fr);} .fgrid.g1{grid-template-columns:1fr;}
+  @media (max-width:760px){ .fgrid.g4,.fgrid.g3{grid-template-columns:repeat(2,1fr);} }
+  .fld{background:#fff; padding:8px 12px; min-height:56px;}
+  .fld .lb{font-size:10.5px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); font-weight:700; margin-bottom:2px;}
+  .fld .vl{font-size:13.5px; font-weight:600; word-break:break-word;}
+  .fld .vl.empty{color:#9AA9AE; font-weight:400; font-style:italic;}
+  .fld .cellref{font-family:Consolas,monospace; font-size:9.5px; color:#A7B7BC; text-transform:none; letter-spacing:0; float:right;}
+  .fld.err{background:var(--err-bg); box-shadow:inset 3px 0 0 var(--err);}
+  .fld.err .vl{color:var(--err);}
+  .fld.warn{background:var(--warn-bg); box-shadow:inset 3px 0 0 var(--warn);}
+  .fld.warn .vl{color:var(--warn);}
+  .fmsg{font-size:12px; margin-top:5px; padding:4px 8px; border-radius:6px; background:#fff;}
+  .fmsg.m-e{color:var(--err); border:1px solid #E5B7B3;}
+  .fmsg.m-a{color:var(--warn); border:1px solid #E8D3A6;}
+  .mchips{background:#fff; padding:10px 12px; display:flex; gap:8px; flex-wrap:wrap;}
+  .mchip{font-size:12.5px; font-weight:600; border-radius:20px; padding:4px 12px; background:var(--chip); color:var(--muted); border:1px solid var(--line);}
+  .mchip.on{background:var(--ok-bg); color:var(--ok); border-color:#BBD9C8;}
+  #modal,#modalRep,#modalStats{display:none; position:fixed; inset:0; background:rgba(16,36,42,.55); z-index:50; padding:30px 16px; overflow:auto;}
+  #modal.show,#modalRep.show,#modalStats.show{display:block;}
+  .mbox{max-width:860px; margin:0 auto; background:#fff; border-radius:14px; overflow:hidden;}
+  .mhead{background:var(--petrol); color:#fff; padding:16px 22px; display:flex; justify-content:space-between; align-items:center; position:sticky; top:0;}
+  .mhead h2{font-size:17px;}
+  .mhead button{background:rgba(255,255,255,.15); color:#fff; border:none; border-radius:8px; padding:7px 14px; cursor:pointer; font-size:13px; font-weight:600;}
+  .mbody{padding:20px 24px 28px;}
+  .mbody h3{font-size:13px; letter-spacing:.1em; text-transform:uppercase; color:var(--petrol); margin:18px 0 8px; border-bottom:1.5px solid var(--line); padding-bottom:4px;}
+  .crit{display:flex; gap:10px; align-items:baseline; padding:5px 0; font-size:13.5px;}
+  .crit .cs{flex:none; font-size:10px; font-weight:800; letter-spacing:.06em; border-radius:5px; padding:2px 7px; color:#fff;}
+  .crit .cs.E{background:var(--err);} .crit .cs.A{background:var(--warn);}
+  .mnote{font-size:12.5px; color:var(--muted); background:var(--chip); border-radius:8px; padding:10px 14px; margin-top:14px;}
+
+
+  .rep{white-space:pre-wrap; font-family:Consolas,"Courier New",monospace; font-size:12.8px; background:var(--chip); padding:18px; border-radius:10px; line-height:1.55; border:1px solid var(--line);}
+  .mhead .hbtns{display:flex; gap:8px;}
+
+
+  #login{position:fixed; inset:0; background:var(--petrol); z-index:200; display:flex; align-items:center; justify-content:center; padding:20px;}
+  #login.hide{display:none;}
+  .loginBox{background:#fff; border-radius:16px; padding:34px 30px; width:100%; max-width:380px;}
+  .loginBox h2{color:var(--petrol); font-size:19px; margin-bottom:4px;}
+  .loginBox .sub{color:var(--muted); font-size:13px; margin-bottom:20px;}
+  .loginBox label{display:block; font-size:12px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); margin:12px 0 4px;}
+  .loginBox input{width:100%; padding:10px 12px; border:1.5px solid var(--line); border-radius:8px; font-size:14.5px;}
+  .loginBox input:focus{outline:none; border-color:var(--focus);}
+  #loginBtn{width:100%; margin-top:20px; padding:11px; font-size:15px;}
+  #loginError{display:none; background:var(--err-bg); color:var(--err); border-radius:8px; padding:9px 12px; font-size:13px; margin-top:14px;}
+  .loginNote{font-size:11.5px; color:var(--muted); margin-top:16px; text-align:center;}
+  #sesion{display:none; gap:10px; align-items:center; font-size:13px;}
+  #sesion .em{opacity:.85; max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .stGrid{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px;}
+  .stFiltros{display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:14px;}
+  .stFiltros input{border:1px solid var(--line); border-radius:7px; padding:6px 8px; font-size:13px;}
+  .stLoad{color:var(--muted); font-size:13.5px; padding:14px 4px;}
+  .stDias{display:flex; gap:8px; flex-wrap:wrap;}
+  .stDia{background:var(--chip); border-radius:7px; padding:4px 10px; font-size:12.5px;}
+
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <h1>Validador de Calidad · Instrumento de Canalización</h1>
+    <p>Subred Integrada de Servicios de Salud Norte E.S.E. — Equipo Canalizaciones</p>
+  </div>
+  <div class="cfg">
+    <label for="ver">Versión vigente</label>
+    <input type="text" id="ver" value="V20-B">
+    <button class="btn sm" id="btnCriterios" style="background:rgba(255,255,255,.14); color:#fff;">Ver criterios de validación</button>
+    <div id="sesion">
+      <span class="em" id="userEmail"></span>
+      <button class="btn sm" id="btnStats" style="background:rgba(255,255,255,.14); color:#fff;">Mis estadísticas</button>
+      <button class="btn sm" id="btnLogout" style="background:rgba(255,255,255,.14); color:#fff;">Salir</button>
+    </div>
+    <span class="chk"><input type="checkbox" id="fichaBlank" checked><label for="fichaBlank">Exigir ficha en blanco</label></span>
+  </div>
+</header>
+
+<main>
+  <div id="drop">
+    <div class="icon">📋</div>
+    <div class="big">Arrastre aquí los instrumentos diligenciados (.xlsm)</div>
+    <div class="sub">o haga clic para seleccionarlos — puede validar varios a la vez. Los archivos se procesan en este equipo: no se envían a ningún servidor.</div>
+    <input type="file" id="fileInput" accept=".xlsm,.xlsx" multiple hidden>
+  </div>
+
+  <div id="summary">
+    <div class="stat"><div class="n" id="nTot">0</div><div class="l">Validados</div></div>
+    <div class="stat ok"><div class="n" id="nOk">0</div><div class="l">Correctos</div></div>
+    <div class="stat err"><div class="n" id="nErr">0</div><div class="l">Con errores</div></div>
+    <div class="stat warn"><div class="n" id="nWarn">0</div><div class="l">Con advertencias</div></div>
+  </div>
+
+  <div id="toolbar">
+    <span class="eyebrow" id="lote"></span>
+    <div style="display:flex; gap:10px;">
+      <button class="btn ghost" id="btnClear">Limpiar lote</button>
+      <button class="btn ghost" id="btnRepLote">Reporte de devoluciones</button>
+      <button class="btn" id="btnExport">Descargar reporte (Excel)</button>
+    </div>
+  </div>
+
+  <div id="results"></div>
+</main>
+
+<footer>
+  La validación de calidad se realiza según los criterios levantados con el equipo profesional (julio 2026). La verificación de afiliación en ADRES y Comprobador de Derechos es asistida: la herramienta prepara la consulta y registra el resultado que usted indique.
+</footer>
+
+
+
+
+<div id="login">
+  <div class="loginBox">
+    <h2>Validador de Calidad · Canalizaciones</h2>
+    <div class="sub">Subred Norte E.S.E. — Ingrese con su cuenta asignada</div>
+    <form id="loginForm">
+      <label for="loginEmail">Correo</label>
+      <input type="email" id="loginEmail" autocomplete="username" required>
+      <label for="loginPass">Contraseña</label>
+      <input type="password" id="loginPass" autocomplete="current-password" required>
+      <button class="btn" id="loginBtn" type="submit">Ingresar</button>
+    </form>
+    <div id="loginError"></div>
+    <div class="loginNote">El acceso es asignado por el administrador del proceso. Los formatos se validan en su equipo; solo se registran conteos de validación en su cuenta.</div>
+  </div>
+</div>
+
+<div id="modalStats">
+  <div class="mbox">
+    <div class="mhead"><h2>Mis estadísticas de validación</h2><button id="modalStatsClose">Cerrar</button></div>
+    <div class="mbody">
+      <div class="stFiltros">
+        <button class="btn sm ghost" data-rango="hoy">Hoy</button>
+        <button class="btn sm ghost" data-rango="ayer">Ayer</button>
+        <button class="btn sm ghost" data-rango="semana">Esta semana</button>
+        <button class="btn sm ghost" data-rango="esteMes">Este mes</button>
+        <span style="margin-left:6px;">Mes: <input type="month" id="stMes"> <button class="btn sm" id="stMesBtn">Ver</button></span>
+        <span>Rango: <input type="date" id="stD1"> a <input type="date" id="stD2"> <button class="btn sm" id="stRangoBtn">Ver</button></span>
+      </div>
+      <div id="statsOut"><div class="stLoad">Seleccione un periodo.</div></div>
+    </div>
+  </div>
+</div>
+
+<div id="modalRep">
+  <div class="mbox">
+    <div class="mhead"><h2 id="repTitle">Reporte de devolución</h2><div class="hbtns"><button id="repCopy">Copiar para el correo</button><button id="modalRepClose">Cerrar</button></div></div>
+    <div class="mbody"><pre class="rep" id="repText"></pre></div>
+  </div>
+</div>
+
+<div id="modal">
+  <div class="mbox">
+    <div class="mhead"><h2>Criterios de validación de calidad</h2><button id="modalClose">Cerrar</button></div>
+    <div class="mbody">
+      <div class="mnote">Criterios levantados y confirmados con el equipo profesional de canalizaciones (julio 2026). <b>ERROR</b> = el formato se marca CON ERRORES y debe corregirse. <b>AVISO</b> = advertencia: el formato pasa, pero debe revisarse.</div>
+      <h3>Estructura y versión</h3>
+<div class="crit"><span class="cs E">ERROR</span><span>El archivo debe contener las 12 hojas originales del instrumento: se rechazan formatos con hojas eliminadas o anexadas.</span></div>
+<div class="crit"><span class="cs E">ERROR</span><span>El instrumento debe ser la versión vigente configurada (por defecto V20-B).</span></div>
+<div class="crit"><span class="cs A">AVISO</span><span>El Nº de ficha debe llegar en blanco a validación (lo diligencia el digitador al subir al SIRC).</span></div>
+<h3>Fechas</h3>
+<div class="crit"><span class="cs E">ERROR</span><span>Fechas de captación, generación y nacimiento completas y válidas (día 1-31, mes 1-12); captación y generación deben ser del año en curso.</span></div>
+<div class="crit"><span class="cs E">ERROR</span><span>La fecha de nacimiento no puede ser posterior a la captación.</span></div>
+<div class="crit"><span class="cs E">ERROR</span><span>La generación debe ser el mismo día de la captación o máximo el siguiente día hábil (descontando fines de semana y festivos de Colombia).</span></div>
+<div class="crit"><span class="cs A">AVISO</span><span>La fecha de captación no puede ser una fecha futura.</span></div>
+<h3>Identificación del usuario</h3>
+<div class="crit"><span class="cs E">ERROR</span><span>Primer nombre y primer apellido obligatorios y sin números ni símbolos.</span></div>
+<div class="crit"><span class="cs E">ERROR</span><span>Tipo y número de documento obligatorios; para CC, TI y RC el número debe ser numérico de 6 a 10 dígitos; para PPT debe ser numérico.</span></div>
+<div class="crit"><span class="cs E">ERROR</span><span>Coherencia tipo de documento vs edad exacta: CC 18+ · TI 7 a 17 · RC menor de 7 · Certificado Nacido Vivo hasta 1 mes · Menor sin identificar menor de 18 · Adulto sin identificar 18+ · PPT y demás documentos de extranjería en cualquier rango de edad.</span></div>
+<div class="crit"><span class="cs A">AVISO</span><span>Registro Civil entre 7 y 8 años: se avisa para verificar en ADRES (tolerancia).</span></div>
+<div class="crit"><span class="cs E">ERROR</span><span>PEP: documento no vigente, se rechaza.</span></div>
+<div class="crit"><span class="cs A">AVISO</span><span>Tarjeta de Extranjería: no verificable en ADRES, se avisa.</span></div>
+<div class="crit"><span class="cs E">ERROR</span><span>Momento de curso de vida coherente con la edad calculada.</span></div>
+<div class="crit"><span class="cs E">ERROR</span><span>Sexo, género, nacionalidad, estado civil, etnia y población especial/diferencial obligatorios.</span></div>
+<div class="crit"><span class="cs A">AVISO</span><span>Nacionalidad distinta de COL con documento CC/TI/RC/CNV: se avisa.</span></div>
+<div class="crit"><span class="cs E">ERROR</span><span>Documento de extranjería (CE, TE, Salvoconducto, PEP, Carné Diplomático, PPT): la población especial/diferencial debe ser "21 · Migrante Internacional".</span></div>
+<div class="crit"><span class="cs E">ERROR</span><span>Usuario con sexo "Intersexual" o género "Transgénero": la observación debe confirmarlo expresamente.</span></div>
+<div class="crit"><span class="cs E">ERROR</span><span>Estado civil: hasta 13 años debe ser "No aplica"; de 14 en adelante debe registrar un estado civil (mínimo Soltero/a).</span></div>
+<div class="crit"><span class="cs E">ERROR</span><span>Gestante solo en mujeres de 10 a 50 años (no primera infancia ni vejez), con edad gestacional obligatoria entre 1 y 42 semanas.</span></div>
+<div class="crit"><span class="cs A">AVISO</span><span>Nivel educativo coherente con la edad (0-3 "No aplica" · 4-5 Preescolar · 6-11 primaria · 12-17 secundaria).</span></div>
+<div class="crit"><span class="cs E">ERROR</span><span>Ocupación coherente con la edad: 0-3 años "No aplica" · 4-17 años "Estudiante" · mayores de 18 pueden ser "Estudiante" solo si el nivel educativo es técnica, tecnológica o superior incompleta (con esos niveles también pueden tener otra ocupación).</span></div>
+<h3>Régimen y EAPB</h3>
+<div class="crit"><span class="cs E">ERROR</span><span>Régimen y EAPB obligatorios.</span></div>
+<div class="crit"><span class="cs E">ERROR</span><span>La EAPB debe pertenecer al listado del régimen seleccionado (Subsidiado o Contributivo).</span></div>
+<div class="crit"><span class="cs E">ERROR</span><span>Régimen PNA (población no asegurada): la EAPB debe ser "Ninguno".</span></div>
+<h3>Dirección de residencia</h3>
+<div class="crit"><span class="cs E">ERROR</span><span>Zona obligatoria. Urbana: dirección con vía y número. Rural: vereda y coordenadas (latitud y longitud) diligenciadas.</span></div>
+<div class="crit"><span class="cs E">ERROR</span><span>Localidad entre 1 y 20 (toda Bogotá) y UPZ correspondiente a la localidad seleccionada.</span></div>
+<div class="crit"><span class="cs E">ERROR</span><span>Barrio/vereda y teléfono 1 obligatorios: 10 dígitos iniciando en 3 (celular) o en 601 (fijo). El teléfono 2, si se diligencia, mismo formato (también genera error).</span></div>
+<div class="crit"><span class="cs A">AVISO</span><span>Correo electrónico opcional; si se diligencia debe tener formato válido.</span></div>
+<div class="crit"><span class="cs A">AVISO</span><span>Verificación asistida de la dirección en el Geocodificador de la SDS: botón que copia la dirección y abre la página para comparar dirección, barrio, UPZ y localidad; el resultado se registra en el reporte.</span></div>
+<h3>Generador y necesidad identificada</h3>
+<div class="crit"><span class="cs E">ERROR</span><span>Entorno/transversalidad y componente PSPIC generadores obligatorios y coherentes entre sí.</span></div>
+<div class="crit"><span class="cs E">ERROR</span><span>Al menos una ruta con motivo diligenciado (solo se exceptúa cuando la única modalidad es Sin aseguramiento).</span></div>
+<div class="crit"><span class="cs E">ERROR</span><span>El código de finalidad solo aplica en la Ruta 1 (y en Ruta 1 es obligatorio).</span></div>
+<div class="crit"><span class="cs E">ERROR</span><span>El motivo/riesgo debe existir en el listado oficial de la ruta seleccionada.</span></div>
+<div class="crit"><span class="cs E">ERROR</span><span>Cruces de perfil: motivos de próstata solo aplican a hombres; citología, mama, gestación y afines solo aplican a mujeres.</span></div>
+<div class="crit"><span class="cs A">AVISO</span><span>Mamografía desde los 50 años; tamizaje de cuello uterino desde los 25; Ruta 9 para gestantes, puérperas y recién nacidos.</span></div>
+<div class="crit"><span class="cs E">ERROR</span><span>Con prescripción social activa, la escala OSSS-3 es obligatoria (no puede figurar "Sin datos").</span></div>
+<h3>Modalidades</h3>
+<div class="crit"><span class="cs E">ERROR</span><span>Debe haber al menos una modalidad activa.</span></div>
+<div class="crit"><span class="cs E">ERROR</span><span>EAPB y Sin aseguramiento no pueden estar activas al mismo tiempo.</span></div>
+<div class="crit"><span class="cs E">ERROR</span><span>Modalidad EAPB: el usuario debe tener EAPB válida; con documento "sin identificar" se avisa.</span></div>
+<div class="crit"><span class="cs E">ERROR</span><span>Modalidad entre entornos: componente que recibe obligatorio, y no puede ser el mismo componente que genera. Si se dirige a EBE Hogar, el generador no puede ser EBEH. Intersectorial: entidad obligatoria.</span></div>
+<div class="crit"><span class="cs E">ERROR</span><span>Modalidad sin aseguramiento: el régimen debe ser PNA. Y a la inversa: usuario con régimen PNA (EAPB "Ninguno") debe tener activa la modalidad Sin aseguramiento.</span></div>
+<h3>Comentarios, responsable y manejo de datos</h3>
+<div class="crit"><span class="cs E">ERROR</span><span>Comentarios y observaciones obligatorios (máx. 1.000 caracteres) y acordes a la ruta/modalidad.</span></div>
+<div class="crit"><span class="cs A">AVISO</span><span>Observación muy breve (menos de 30 caracteres): debe describir la situación y los servicios/modalidades activados.</span></div>
+<div class="crit"><span class="cs E">ERROR</span><span>Nombre, cédula, profesión y teléfono de quien canaliza obligatorios.</span></div>
+<div class="crit"><span class="cs A">AVISO</span><span>El teléfono de quien canaliza debe tener formato de teléfono (celular 3… o fijo 601…): se avisa si parece un número de documento.</span></div>
+<div class="crit"><span class="cs A">AVISO</span><span>La cédula de quien canaliza debe ser numérica de 6 a 10 dígitos: se avisa si parece un número de teléfono.</span></div>
+<div class="crit"><span class="cs E">ERROR</span><span>Autorización de manejo de datos marcada; si el usuario NO autoriza, el formato se rechaza.</span></div>
+<div class="crit"><span class="cs E">ERROR</span><span>Usuario menor de 18 años: acudiente (Sí), parentesco, firma y documento del acudiente obligatorios.</span></div>
+      <div class="mnote">Además, por cada formato la herramienta prepara la <b>verificación asistida de afiliación</b>: muestra documento, nombres, fecha de nacimiento, régimen y EAPB declarados, copia el documento y abre ADRES o el Comprobador de Derechos, y registra el resultado que indique la profesional (régimen, EAPB, estado activo, afiliación en Bogotá, nombres y fecha de nacimiento), incluida la excepción de Cundinamarca (Chía, Soacha, Sopó y La Calera con rutas 5, 6, 8, 10 o 13).</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const CAT = {"tipoDoc": {"1": "Cedula de Ciudadanía", "2": "Pasaporte", "3": "Cedula Extranjería", "4": "Tarjeta Identidad", "5": "Registro Civil", "6": "Certificado Nacido Vivo", "7": "Menor sin Identificar", "8": "Adulto sin Identificar", "9": "Tarjeta Extranjería", "10": "Salvo conducto Asilado o Refugiado", "11": "Permiso Especial de Permanencia", "12": "Carnet Diplomático", "13": "NUIP", "14": "Permiso por Protección Temporal"}, "regimen": {"1": "Subsidiado", "2": "Contributivo", "3": "Régimen_de_excepción_especial", "4": "PNA"}, "eapbGeneral": {"1": "Capital salud", "2": "Sanitas", "3": "Compensar", "4": "Famisanar", "6": "Aliansalud", "7": "Salud total", "8": "Sura", "11": "Nueva EPS", "12": "Dirección de Sanidad Policía Nacional", "13": "Dirección de Sanidad Fuerzas Militares", "14": "Unisalud", "15": "Ecopetrol", "16": "Magisterio-Fiduprevisora", "18": "SOS", "19": "Ferrocarriles", "21": "Coosalud", "22": "Mallamas", "29": "Salud Bolívar EPS"}, "eapbSubsidiado": {"1": "Capital salud", "2": "Sanitas", "3": "Compensar", "4": "Famisanar", "6": "Aliansalud", "7": "Salud total", "8": "Sura", "11": "Nueva EPS", "18": "SOS", "19": "Ferrocarriles", "21": "Coosalud", "22": "Mallamas", "29": "Salud Bolívar EPS"}, "eapbContributivo": {"1": "Capital salud", "2": "Sanitas", "3": "Compensar", "4": "Famisanar", "6": "Aliansalud", "7": "Salud total", "8": "Sura", "11": "Nueva EPS", "18": "SOS", "19": "Ferrocarriles", "21": "Coosalud", "22": "Mallamas", "29": "Salud Bolívar EPS"}, "sexo": {"3": "Intersexual", "4": "Hombre", "5": "Mujer"}, "genero": {"4": "Masculino", "5": "Femenino", "6": "Transgénero"}, "estadoCivil": {"1": "Soltero(a)", "2": "Casado(a)", "3": "Viudo(a)", "4": "Separado(a)", "5": "Unión Libre", "6": "No aplica"}, "etnia": {"1": "Indígena", "2": "ROM-gitano", "3": "Raizal", "4": "Palenquero", "5": "Afrocolombiano/Afrodescendiente", "6": "Ninguno"}, "nivelEducativo": {"1": "Preescolar", "2": "Básica primaria completa", "3": "Básica primaria incompleta", "4": "Básica secundaria completa", "5": "Básica secundaria incompleta", "6": "Técnica completa", "7": "Técnica incompleta", "8": "Tecnológica completa", "9": "Tecnológica incompleta", "10": "Superior completa", "11": "Superior incompleta", "12": "Ninguno", "13": "No Aplica"}, "ocupacion": {"1": "Trabajador formal", "2": "Trabajador informal", "3": "Estudiante", "4": "Oficios del hogar", "5": "Desempleado (a)", "6": "Pensionado (a)", "7": "Madre comunitaria", "8": "Cesante", "11": "Ninguno", "12": "No aplica", "13": "Cuidador de persona con discapacidad", "15": "Independiente"}, "poblacionEspecial": {"1": "Víctima del conflicto armado", "2": "Con Discapacidad", "3": "Habitante de calle", "4": "Habitante en calle", "5": "Desmovilizado(a)", "8": "Persona que realiza actividades sexuales pagadas", "9": "Lesbiana", "10": "HSH", "11": "Bisexual", "16": "Ninguna", "17": "Madres comunitarias / sustitutas", "18": "Niños y/o Adolescentes bajo sistema de responsabilidad penal", "19": "Adulto en centros de protección", "20": "Adulto en condición de abandono", "21": "Migrante Internacional", "22": "Población Privada de la libertad"}, "upzLocalidad": {"1": 1, "9": 1, "10": 1, "11": 1, "12": 1, "13": 1, "14": 1, "15": 1, "16": 1, "88": 2, "89": 2, "90": 2, "97": 2, "99": 2, "91": 3, "92": 3, "93": 3, "95": 3, "96": 3, "32": 4, "33": 4, "34": 4, "50": 4, "51": 4, "52": 5, "56": 5, "57": 5, "58": 5, "59": 5, "60": 5, "61": 5, "42": 6, "62": 6, "49": 7, "84": 7, "85": 7, "86": 7, "87": 7, "46": 8, "44": 8, "45": 8, "47": 8, "48": 8, "78": 8, "79": 8, "80": 8, "81": 8, "82": 8, "83": 8, "113": 8, "75": 9, "76": 9, "77": 9, "110": 9, "112": 9, "114": 9, "115": 9, "117": 9, "26": 10, "29": 10, "30": 10, "31": 10, "72": 10, "73": 10, "74": 10, "105": 10, "116": 10, "2": 11, "3": 11, "17": 11, "18": 11, "19": 11, "20": 11, "23": 11, "24": 11, "25": 11, "27": 11, "28": 11, "71": 11, "21": 12, "22": 12, "98": 12, "103": 12, "100": 13, "101": 13, "104": 13, "106": 13, "107": 13, "109": 13, "37": 14, "102": 14, "35": 15, "38": 15, "40": 16, "41": 16, "43": 16, "108": 16, "111": 16, "94": 17, "36": 18, "39": 18, "53": 18, "54": 18, "55": 18, "130": 20, "131": 20, "63": 19, "64": 19, "65": 19, "66": 19, "67": 19, "68": 19, "69": 19, "70": 19}, "localidades": {"1": "Usaquén", "2": "Chapinero", "3": "Santa Fe", "4": "San Cristóbal", "5": "Usme", "6": "Tunjuelito", "7": "Bosa", "8": "Kennedy", "9": "Fontibón", "10": "Engativá", "11": "Suba", "12": "Barrios Unidos", "13": "Teusaquillo", "14": "Mártires", "15": "Antonio Nariño", "16": "Puente Aranda", "17": "La Candelaria", "18": "Rafael Uribe", "20": "Sumapaz", "19": "Ciudad Bolívar"}, "momentoCursoVida": {"1": "Recién nacido (5 años, 11 meses y 29 días)", "2": "Infancia (6 a 11 años, 11 meses y 29 días)", "3": "Adolescencia (12 a 17 años 11 meses y 29 días)", "4": "Juventud (18 hasta los 28 años 11 meses y 29 días)", "5": "Adultez (29 a los 59 años 11 meses y 29 días)", "6": "Vejez (desde los 60 años en adelante)"}, "rutas": {"1": "Ruta De Promoción Y Mantenimiento De La Salud", "2": "RIAS para población con riesgo o presencia de alteraciones cardio — cerebro — vascular — metabólicas manifiestas", "3": "RIAS para población con riesgo o presencia de enfermedades respiratorias crónicas.", "4": "RIAS para población con riesgo o presencia de alteraciones nutricionales.", "5": "RIAS para población con riesgo o presencia de trastornos mentales y del comportamiento manifiestos debido a uso de sustancias psicoactivas y adicciones.", "6": "RIAS para población con riesgo o presencia de trastornos psicosociales y del comportamiento.", "7": "RIAS para población con riesgo o presencia de alteraciones en la salud bucal.", "8": "RIAS para población con riesgo o presencia de cáncer.", "9": "RIAS para población materno - perinatal.", "10": "RIAS para población con riesgo o presencia de enfermedades infecciosas.", "11": "RIAS para población con riesgo o presencia de zoonosis y agresiones por animales.", "12": "RIAS para población con riesgo o presencia de enfermedad y accidentes laborales.", "13": "RIAS para población con riesgo o sujeto de agresiones, accidentes y traumas.", "14": "RIAS para población con riesgo o presencia de enfermedades y accidentes relacionados con el medio ambiente.", "15": "RIAS para población con riesgo o presencia de enfermedades huérfanas.", "16": "RIAS para población con riesgo o presencia de trastornos visuales y auditivos.", "17": "RIAS para población con riesgo o presencia de trastornos degenerativos, neuropatías y auto-inmunes."}, "finalidades": {"1-1": "Finalidad Valoración Integral", "1-2": "Finalidad Protección Específica", "1-3": "Finalidad Detección Temprana"}, "motivos": {"1-1-10": "Menor de un mes sin consulta de valoración de lactancia materna", "1-1-12": "Valoración integral por curso de vida", "1-2-1": "Persona con esquema de vacunación incompleto para la edad", "1-2-8": "Persona en edad fértil sin intención reproductiva y sin método anticonceptivo", "1-2-10": "Niño o niña entre los 6 meses y 5 años que no ha tenido fortificación,suplementacíon o antiparacitarios.", "1-2-12": "Persona sin valoracion integral por odontología según curso de vida", "1-3-1": "Persona sin toma de prueba ADN-VPH o de citología (entre los 25 y 29 años para citología / entre los 30 y 65 años ADN-VPH)", "1-3-2": "Persona sin realización del examen clínico de la mama (a partir de los 40 años)", "1-3-3": "Persona  sin toma de mamografía ( entre los 50 y 69 años)", "1-3-4": "Persona con riesgo de cáncer de próstata ( tamizaje por oportunidad a partir de los 50 años)", "1-3-5": "Persona entre 50y 75 años sin tamizaje de sangre oculta en materia fecal.", "1-3-6": "Mujer sin tamizaje para anemia (una vez entre los 10_13 y una vez entre los 14 y 17 años)", "1-3-7": "Persona con tamizaje anormal para  cáncer de cuello uterino", "1-3-8": "Tamizaje anormal para cáncer de mama", "1-3-9": "Tamizaje anormal para cáncer de prostata", "1-3-10": "Tamizaje anormal para cáncer de colon", "2--3": "Persona con diagnóstico de obesidad y/o Hipertensión Arterial y/o Diabetes  no adherente a  tratamiento y/o controles médicos.", "2--4": "Persona con complicaciones secundarias a la patología de base sin control reciente", "2--5": "Persona con tamización de riesgo CCVM (escala cardiovascular de OMS y  Findrisc) y estratificación de riesgo medio, alto y muy alto.", "2--6": "Paciente con egreso hospitalario o de urgencia por condición crónica sin asignación de cita para seguimiento.", "2--7": "Persona con riesgo CVM  medio, alto o con diagnostico de obesidad y/o Hipertensión Arterial y/o Diabetes  para prescripción/recomendación  de actividad física.", "2--8": "Persona con patología CCVM sin esquema o esquema incompleto para vacunación COVID_19.", "3--1": "Persona con  diagnóstico de EPOC sin espirometría.", "3--2": "Persona con diagnóstico de EPOC  sin tratamiento o sin adherencia al tratamiento.", "3--3": "Persona con diagnóstico de ASMA  sin tratamiento / sin control medico.", "3--4": "Persona con exposición laboral informal a polvo, gas y/o > 10 años a biomasa.", "3--5": "Persona con antecedente de TB y sospecha clínica de ERC.", "3--7": "Persona con EPOC y/o asma sin aplicación vacuna influenza y neumococo", "3--8": "Persona mayor de 40 años con factores de riesgo y resultado positivo en el cuestionario para EPOC.", "3--9": "Persona con patología ERC sin esquema o esquema incompleto para vacunación COVID_19", "4--1": "Niño-niña menor de 5 años con diagnóstico desnutrición aguda sin control por nutrición o pediatría en el último mes.", "4--2": "Niño-niña menor de 5 años con diagnóstico de desnutrición aguda sin tratamiento médico o nutricional.", "4--3": "Niño, niña o adolescente con diagnóstico de obesidad sin tratamiento.", "4--4": "Niño, niña o adolescente con diagnóstico de obesidad sin control en el último semestre.", "4--5": "Niño o niña menor de 5 años con diagnóstico de anemia nutricional sin tratamiento.", "4--6": "Niño -Niña menor de 5 años con diagnostico de riesgo de desnitrición aguda sin control por nutricion o pediatria en el ultimo mes", "4--7": "Niño .Niña menor de 5 años con diagnostico de riesgo de desnutrición aguda,sin tratamiento.", "5--1": "Persona con consumo problemático de sustancias psicoactivas.", "5--2": "Persona con consumo  inicial o  recreativo de sustancias psicoactivas.", "5--3": "Persona con consumo de productos de tabaco y/o sus derivados, o expuesto a humo de segunda mano.", "6--4": "Persona con síntomas de trastornos mental y del comportamiento.", "6--5": "Persona con  trastorno mental  y del comportamiento (Depresión, Demencia, Esquizofrenia, Ansiedad, Fobias)  sin atención integral.", "6--6": "Sobrevivientes de suicidio consumado (familia, pareja).", "6--7": "Persona con ideación, plan, amenaza o intento de suicidio.", "6--8": "Persona transgénero en proceso de transformación corporal sin control médico, ni acompañamiento psicosocial.", "6--10": "Persona con problemas psicosociales (duelo, pautas de crianza, estrés, trastornos del aprendizaje, aquellos asociados con otras enfermedades en salud, etc).", "6--11": "Persona con diagnostico de epilepsia sin atención integral .", "6--12": "Persona con comportamientos auto lesivos sin intensión letal (Cutting).", "6--13": "Persona con patología dual (trastorno mental + trastornos consumo sustancias psicoactivas) sin atención integral para el trastorno mental.", "7--2": "Personas con caries cavitacional", "7--3": "Personas con gingivitis y/o periodontitis.", "7--4": "Personas con perdida dental", "7--5": "Personas con  procesos infecciosos.", "7--6": "Persona con alteraciones de la salud bucal (lesiones dentales que pueden apreciarse como mancha blanca o mancha marrón)", "7--7": "Personas con trauma dental y/o maxilofacial", "7--8": "Persona con diagnostico de Fluorosis", "7--9": "Alteraciones de la salud bucal (  Mal posiciones dentarias, alteraciones de maxilares, hábitos orales no fisiológicos)", "8--1": "Persona con presunción diagnostica sin confirmación de cáncer de cuello uterino y cáncer de mama.", "8--2": "Persona con diagnóstico de cáncer de cuello uterino y cáncer de mama sin tratamiento", "8--3": "Menor de 18 años con diagnóstico probable o confirmado de Cáncer Infantil sin seguimiento.", "8--4": "Persona con síntomas de alarma por exposición continua  a químico (sustancias cancerígenas) en el trabajo.", "8--5": "Persona con diagnóstico de cáncer (sólido o hematopoyético)  sin seguimiento / apoyos diagnósticos /farmacológicos.", "8--6": "Persona con diagnostico de cancer para prescripcion/recomendación de actividad fisica", "8--7": "Persona con diagnóstico de cáncer de cuello uterino sin seguimiento / apoyos diagnósticos /farmacológicos", "8--8": "Persona con diagnóstico de  cáncer de mama sin seguimiento / apoyos diagnósticos /farmacológicos", "8--9": "Persona con patología oncológica sin esquema o esquema incompleto para vacunación COVID-19", "9--1": "Gestante sin control prenatal o no adherente a controles.", "9--2": "Persona gestante o post evento obstétrico con diagnóstico de VIH sin inclusión en el programa.", "9--3": "Persona gestante con diagnóstico de sífilis sin tratamiento y/o sin seguimiento serológico.", "9--7": "Gestante en quien se confirmó o se sospechó ETV (Enfermedad Transmitida por Vectores).", "9--9": "Persona gestante sin consulta odontológica.", "9--10": "Persona gestante con morbilidades crónicas.", "9--11": "Persona gestante o con sospecha de embarazo y deseo de Interrupción Voluntaria del Embarazo según causal sentencia C355 /2006.", "9--12": "Persona en puerperio o post aborto sin método anticonceptivo.", "9--13": "Neonato sin consulta de control del recién nacido", "9--14": "Menor   de un año con antecedentes de bajo peso al nacer sin control (2500 Gr).", "9--15": "Menor de un año con antecedentes de prematuridad (menor de 37 semanas de gestación), sin control en el programa madre canguro o inasistencia a controles", "9--16": "Menor de un año con diagnóstico de malformaciones congénitas mayores (cardiacas, gastrointestinales, neurológicas y cromosómicas) sin seguimiento", "9--17": "Neonato sin seguimiento al resultado de TSH neonatal (hipotiroidismo) o con resultado positivo sin retamizaje.", "9--18": "Persona gestante sin esquema de vacunación adecuado para la edad gestacional", "9--19": "Persona gestante con antecedente de  signos o síntomas de alarma para seguimiento por la EAPB.", "9--20": "Persona gestante no valorada por nutricionista o con alteración nutricional o que no recibe suplementación con micronutrientes", "9--21": "Persona gestante o en post parto que al momento de indagar, identifica una situación emocional que en ese momento afecta su vida", "9--22": "Mujer con intención reproductiva sin consulta preconcepcional", "9--23": "Persona gestante sin tamizaje para cáncer de cuello uterino", "9--24": "Persona gestante con alto riesgo de evento trombótico sin medidas profilácticas", "9--25": "Persona sin control pos-evento obstétrico (hasta 40 días pos-parto)", "9--26": "Recién nacido sin tamizaje auditivo o sin programación de tamizaje por EAPB (hasta 28 días de nadico).", "9--27": "Recién nacido sin tamizaje visual (hasta 28 días de nacido).", "9--28": "Recién nacido sin tamizaje para cardiopatía congénita (pulsooximetría) hasta 28 días de nacido.", "9--29": "Recién nacido con desplome nutricional o ganancia inadecuada de peso en el neonato (hasta 28 días de nacido)", "10--1": "Persona con tos permanente con o sin expectoración por más de 15 días.", "10--2": "Persona con diagnóstico de Tuberculosis sin tratamiento directamente observado, sin seguimiento bacteriológico y/o sin seguimiento clínico.", "10--4": "Persona caso  de Leishmaniasis cutánea o mucosa / sin atención en salud /sin inicio de tratamiento / sin seguimiento clínico post tratamiento.", "10--5": "Persona con infección por VIH sin intervención", "10--6": "Persona con prueba rápida para VIH reactiva sin intervención", "10--7": "Persona con infección por sífilis sin intervención", "10--8": "Persona contacto de usuario con evento transmisible captado en IEC.", "10--9": "Persona con diagnóstico de Tuberculosis sin prueba de VIH", "10--10": "Persona con sospecha de lepra (con lesiones cutáneas hipocrómicas que no rascan, no pican y no duelen)", "10--11": "Persona caso probable o confirmado de Chagas sin intervención", "10--12": "Persona con prueba rápida para Hepatitis B / C  positiva sin intervención", "10--13": "Persona con signos y síntomas  de  Enfermedad Diarreica Aguda-EDA sin tratamiento o seguimiento clinico.", "10--14": "Persona con signos y síntomas de Enfermedad Respiratoria Aguda - ERA sin tratamiento o seguimiento clinico.", "10--15": "Persona que refiere diagnostico de una ITS sin intervención", "10--16": "Recien nacido hijo de madre con Hepatitis B, infeccion por VIH, Sifilis gestacional, Toxoplasmosis, Virus Zikv sin seguimiento.", "10--17": "Persona con infección de Hepatitis B / C sin intervención", "10--18": "Persona con infección por HTLV sin intervención", "10--19": "Persona con infección por Malaria sin intervención", "10--20": "Persona contacto de caso de Tuberculosis sin descarte de la enfermedad", "11--1": "Comunidad expuesta a vectores y roedores", "11--2": "Comunidad expuesta a animales en espacio público", "11--3": "Persona con antecedente de accidente rábico con tratamiento incompleto (inmunoglobulina y/o vacuna)..", "11--4": "Persona con antecedente de accidente rabico con tratamiento antirabico incompleto (inmonuglobulina y/o vacuna).", "12--1": "Trabajador expuesto a ruido", "12--2": "Trabajador expuesto a vibraciones.", "12--3": "Trabajador expuesto a inadecuada iluminación", "12--4": "Trabajador expuesto a temperaturas extremas", "12--5": "Trabajador expuesto a inhalación de polvos orgánicos o inorgánicos", "12--6": "Trabajador expuesto al contacto con sustancias químicas", "12--7": "Trabajador expuesto a Inhalación o al contacto por manipulación de fibras", "12--8": "Trabajador expuesto a inhalación de humos metálicos o no metálicos", "12--9": "Trabajador expuesto al contacto con biológicos", "12--10": "Trabajador expuesto al uso de agroquímicos", "12--11": "Trabajador expuesto a rayos ultravioletas", "12--12": "Trabajador expuesto a trabajo monótono y sin pausa", "12--13": "Trabajador expuesto a riesgo biomecánico", "12--14": "Trabajador expuesto a inhalación de gases o vapores.", "12--15": "Trabajador expuesto a estrés laboral.", "12--16": "Trabajador que desarrolla labores o en condiciones de trabajo que le pueden generar accidentes.", "13--1": "Persona victima de violencia sexual", "13--2": "Persona victima de violencia física / psicológica / negligencia -abandono", "13--3": "Mujer con intento de feminicidio", "13--4": "Personas en riesgo de hechos de violencia, agresiones o traumas", "13--5": "Niño Niñas y Adolescentes víctimas de Bullying (matoneo)", "13--6": "Persona víctima de lesiones de causa externa", "14--1": "Comunidad expuesta a contaminación del aire", "14--2": "Comunidad expuesta a contaminación por inadecuado manejo de residuos sólidos", "14--3": "Comunidad expuesta a inadecuado manejo de sustancias químicas y/o residuos peligrosos/especiales o de manejo diferenciado.", "14--4": "Comunidad expuesta a contaminación por agua", "14--5": "Comunidad expuesta a radiación electromagnética.", "14--6": "Comunidad expuesta al ruido.", "14--7": "Comunidad expuesta a establecimiento abierto al público por inadecuadas prácticas sanitarias.", "14--8": "Persona expuesta a factores de riesgo ambiental por Espacio Público o por Movilidad.", "14--9": "Comunidad expuesta a olores ofensivos", "14--10": "Vivienda con factores de riesgo ambiental críticos.", "14--14": "Persona expuesta a factores de riesgo ambiental por mala calidad del agua", "14--15": "Persona expuesta a factores de riesgo ambiental por residuos sólido", "14--16": "Persona expuesta a factores de riesgo ambiental por alimentos en mal estado.", "15--1": "Esclerosis Múltiple sin seguimiento clínico / apoyos diagnósticos /farmacológicos según aplique", "15--2": "Esclerosis Lateral Amniotrófica sin seguimiento clínico / apoyos diagnósticos /farmacológicos según aplique", "15--3": "Deficit congenito del factor VIII sin seguimiento clínico / apoyos diagnósticos /farmacológicos según aplique", "15--4": "Cirrosis biliar primaria sin seguimiento clínico / apoyos diagnósticos /farmacológicos según aplique", "15--5": "Displasia Broncopulmonar sin seguimiento clínico / apoyos diagnósticos /farmacológicos según aplique", "15--6": "Esclerosis sistemica cutánea limitada sin seguimiento clínico / apoyos diagnósticos /farmacológicos según aplique", "15--7": "Enfermedad de Von Willebrand sin seguimiento clínico / apoyos diagnósticos /farmacológicos según aplique", "15--8": "Enfermedad de Devic sin seguimiento clínico / apoyos diagnósticos /farmacológicos según aplique", "15--9": "Sindrome de Guillain Barré sin seguimiento clínico / apoyos diagnósticos /farmacológicos según aplique", "15--10": "Hipertensión pulmonar idiopática sin seguimiento clínico / apoyos diagnósticos /farmacológicos según aplique", "15--11": "Persona con diagnóstico o impresión diagnostica de enfermedad huérfana según listado vigente publicado por el MSPS.", "15--12": "Persona con EH sin esquema o esquema incompleto para vacunación COVID-19.", "16--1": "Persona con riesgo de presentar alteraciones visuales sin valoración", "16--2": "Persona con riesgo de presentar alteraciones de la agudeza auditiva", "16--3": "Personas con alteraciones visuales sin adecuado seguimiento y/o tratamiento.", "16--4": "Personas con traumas del oído /otitis  que no han recibido tratamiento.", "16--5": "Personas con vértigo", "16--6": "Personas con diagnostico de Hipoacusia  que no han recibido tratamiento.", "17--1": "Personas con  dolor, inflamación y deformidad  de las articulaciones sin tratamiento", "17--2": "Personas con diagnostico de Artritis Reumatoide  que no han recibido tratamiento o sin seguimiento medico", "17--3": "Personas con alteraciones del sistema nervioso como movimientos anormales, con temblor anormal o trastornos de la sensibilidad y la fuerza. (Parkinson)", "17--4": "Persona con TDNA sin esquema o esquema incompleto para vacunación COVID-19."}, "entornos": {"1": "Entorno Laboral", "2": "Entorno Educativo", "4": "Entorno Comunitario", "5": "Transversalidad Vigilancia en Salud Pública", "6": "Transversalidad GIPEPB", "7": "Gestión y análisis de Políticas para el bienestar de los territorios", "8": "Línea 106", "10": "Entorno Institucional", "11": "Red Distrital de Banco de Sangre", "13": "DASCD", "14": "Universidades", "15": "Contrato Jurídico Indígena", "17": "Equipos mas bienestar en tu hogar (EBEH)", "18": "PAI", "20": "Ministerio de salud", "21": "Otros generadores"}, "componentes": {"1-1": "Niño, niña adolescente trabajador", "1-3": "Niño, niña, adolescente en encierro parentalizado", "1-4": "Gestión del Riesgo (ASP)", "1-5": "Zonas de cuidado especial por trasmisibilidad", "1-6": "Zonas de cuidado especial por severidad", "1-7": "Trabajador informal (SALUD MENTAL - CITOLOGÍA - GESTANTES - CONDICIONES CRÓNICAS)", "2-1": "Grupos prioritarios con salud mental", "2-2": "Seguimiento a grupos adolescente gestantes y lactantes de los establecimientos educativos", "2-3": "Escolares con mejores prácticas en salud oral", "2-4": "Zonas de cuidado especial por trasmisibilidad", "2-5": "Zonas de cuidado especial por severidad", "2-6": "Formulación e implementación de proyectos ambientales escolares (PRAES)", "2-7": "Abordaje con familias que favorezcan factores protectores en salud", "2-8": "Abordaje a escolares para el fomento de prácticas saludables", "2-9": "Seguimientos con énfasis en vacunación, crecimiento y desarrollo", "4-1": "Promoción de la salud y gestión integral del riesgo en los puntos “cuídate y se feliz”", "4-3": "Servicios de acogida", "4-4": "Puntos de intervención integral para el abordaje de personas que se inyectan droga - PID.", "4-5": "Fortalecimiento Comunitario para el cuidado de la salud", "4-7": "Centros de escucha Mujeressalud", "4-8": "Centros de escucha habitante de calle", "4-9": "Barrismo social y colectivo", "4-10": "Fortalecimiento de entornos ambientalmente saludables", "4-11": "Red de cuidado colectivo para la RBC", "4-14": "Centro de Escucha Raizal", "4-15": "Zonas de cuidado especial por trasmisibilidad", "4-16": "Zonas de cuidado especial por severidad", "4-17": "Centros de escucha LGBTI", "4-18": "Caracterización Barrial y Comunitaria", "4-19": "IEC COVID-19", "4-20": "Servicios de acogida de juvenil", "4-21": "Centros de Escucha para el acondicionamiento físico y la salud mental", "5-1": "SIVIGILA (Sistema nacional de vigilancia en salud pública)", "5-2": "Estadísticas Vitales", "5-3": "SISVEA (Sistema de vigilancia epidemiológica y ambiental)", "5-4": "SIVIM (Sistema de vigilancia epidemiológica de la violencia intrafamiliar, el maltrato infantil y  la violencia sexual)", "5-6": "SIVELCE (Sistema de vigilancia epidemiológica de las lesiones de causa externa)", "5-7": "SISVECOS (Sistema de vigilancia epidemiológica de la conducta suicida)", "5-8": "VESPA (Sistema de vigilancia epidemiológica del consumo de sustancias psicoactivas)", "5-10": "SISVAN (Sistema de vigilancia alimentaria y nutricional)", "5-11": "SISVESO (Sistema vigilancia epidemiológica de la Salud Oral)", "5-12": "SIVISTRA (Sistema vigilancia epidemiológica ocupacional de las y los trabajadores en la economía informal)", "5-13": "Crónicas", "5-16": "Vigilancia Comunitaria", "5-17": "Atención de urgencias y emergencias en Salud Pública", "5-18": "Salud Sexual y Reproductiva", "5-20": "Vigilancia Sanitaria", "6-2": "Grupo At. Enf. Crónicas", "6-3": "Grupo At. Enf. Transmisibles", "6-4": "Grupo Control ETV", "6-5": "Grupo At. Infancia", "6-6": "Grupo At. SSR", "7-1": "Política Pública de Infancia y Adolescencia", "7-2": "Política Pública de Juventud", "7-3": "Política Adultez", "7-4": "Política Pública Social de Envejecimiento y Vejez", "7-5": "Política Pública de Familia", "7-6": "Política Pública ROM o Gitano en el Distrito Capital", "7-7": "Política Pública Distrital Indígena", "7-8": "Política Pública Distrital de Salud para la Población Afro", "7-9": "Política Pública Distrital de Salud para la Población Raizal", "7-10": "Política Pública de Habitante de Calle", "7-11": "Política Pública LGBT en el Distrito Capital", "7-12": "Ley de víctimas 1448 de 2011 - Política Pública víctimas del conflicto armado", "7-13": "Política Pública de mujeres y equidad de género", "7-14": "Política Pública de Discapacidad para el Distrito Capital", "7-15": "Política Pública de Salud Oral con Participación Social para el Decenio", "7-16": "Política Pública de Salud Mental", "7-17": "Política Distrital de Salud Ambiental", "7-18": "Política Pública de SPA", "7-19": "Política Pública De Seguridad Alimentaria y Nutricional, para Bogotá D.C.", "7-20": "Política Pública de Salud y Calidad de vida de los trabajadores", "7-21": "Gestión de canalización intersectoriales", "8-1": "Línea 106", "10-1": "Instituciones de protección a poblaciones vulnerables", "10-2": "Instituciones de personas mayores saludables", "13-1": "Línea de atención psicológica", "14-1": "Facultad de Odontología", "15-1": "PAI", "17-1": "Plan de Cuidado Familiar - Cuidado y Bienestar y Seguridad Alimentaria y Nutricional", "17-2": "Plan de Cuidado Familiar - Bienestar Emocional y con enfoque en Salud Mental", "17-3": "Plan de Cuidado Familiar - Cuidado y Bienestar", "17-4": "Plan de Cuidado Familiar - RBC para el bienestar de población con discapacidad y sus cuidadores", "20-1": "Jóvenes en paz", "21-1": "Otros Convenios"}, "upzNombre": {"1": "Paseo de los Libertadores", "9": "Verbenal", "10": "La Uribe", "11": "San Cristóbal Norte", "12": "Toberín", "13": "Los Cedros", "14": "Usaquén", "15": "Country Club", "16": "Santa Bárbara", "88": "El Refugio", "89": "San Isidro-Patios", "90": "Pardo Rubio", "97": "Chicó Lago", "99": "Chapinero", "91": "Sagrado Corazón", "92": "La Macarena", "93": "Las Nieves", "95": "Las Cruces", "96": "Lourdes", "32": "San Blas", "33": "Sociego", "34": "20 de Julio", "50": "La Gloria", "51": "Los Libertadores", "52": "La Flora", "56": "Danubio", "57": "Gran Yomasa", "58": "Comuneros", "59": "Alfonso López", "60": "Parque Entrenubes", "61": "Ciudad Usme", "42": "Venecia", "62": "Tunjuelito", "49": "Apogeo", "84": "Bosa Occidental", "85": "Bosa Central", "86": "El Porvenir", "87": "Tintal Sur", "46": "Castilla", "44": "Américas", "45": "Carvajal", "47": "Kennedy Central", "48": "Timiza", "78": "Tintal Norte", "79": "Calandaima", "80": "Corabastos", "81": "Gran Britalia", "82": "Patio Bonito", "83": "Las Margaritas", "113": "Bavaria", "75": "Fontibón", "76": "Fontibón-San Pablo", "77": "Zona Franca", "110": "Ciudad Salitre Occidente", "112": "Granjas de Techo", "114": "Modelia", "115": "Capellanía", "117": "Aeropuerto Eldorado", "26": "Las Ferias", "29": "Minuto de Dios", "30": "Boyacá Real", "31": "Santa Cecilia", "72": "Bolivia", "73": "Garcés Navas", "74": "Engativá", "105": "Jardín Botánico", "116": "Álamos", "2": "La Academia", "3": "Guaymaral", "17": "San José de Bavaria", "18": "Britalia", "19": "El Prado", "20": "La Alhambra", "23": "Casablanca SUba", "24": "Niza", "25": "La Floresta", "27": "Suba", "28": "El Rincón", "71": "Tibabuyes", "21": "Los Andes", "22": "12 de Octubre", "98": "Los Alcázares", "103": "Parque Salitre", "100": "Galerías", "101": "Teusaquillo", "104": "Parque Simón Bolívar", "106": "La Esmeralda", "107": "Quinta Paredes", "109": "Ciudad Salitre Oriental", "37": "Santa Isabel", "102": "La Sabana", "35": "Ciudad Jardín", "38": "Restrepo", "40": "Ciudad Montes", "41": "Muzú", "43": "San Rafael", "108": "Zona Industrial", "111": "Puente Aranda", "94": "La Candelaria", "36": "San José", "39": "Quiroga", "53": "Marco Fidel Suárez", "54": "Marruecos", "55": "Diana Turbay", "130": "Rio blanco", "131": "Rio sumapaz", "63": "El Mochuelo", "64": "Monteblanco", "65": "Arborizadora", "66": "San Francisco", "67": "Lucero", "68": "El Tesoro", "69": "Ismael Perdomo", "70": "Jerusalén"}};
+const FESTIVOS = ["2025-01-01", "2025-01-06", "2025-03-24", "2025-04-17", "2025-04-18", "2025-05-01", "2025-06-02", "2025-06-23", "2025-06-30", "2025-07-20", "2025-08-07", "2025-08-18", "2025-10-13", "2025-11-03", "2025-11-17", "2025-12-08", "2025-12-25", "2026-01-01", "2026-01-12", "2026-03-23", "2026-04-02", "2026-04-03", "2026-05-01", "2026-05-18", "2026-06-08", "2026-06-15", "2026-06-29", "2026-07-20", "2026-08-07", "2026-08-17", "2026-10-12", "2026-11-02", "2026-11-16", "2026-12-08", "2026-12-25"];
+</script>
+<script>
+"use strict";
+/* ================= LECTURA DEL INSTRUMENTO (hoja "1") ================= */
+const state = { results: [] };
+
+function S(ws, a){ const c = ws[a]; if(!c || c.v===undefined || c.v===null) return ""; return String(c.v).trim(); }
+function N(ws, a){ const s = S(ws,a); if(s==="") return null; const n = Number(s); return isNaN(n)? null : n; }
+
+function leerFicha(wb){
+  const ws = wb.Sheets["1"];
+  if(!ws) return null;
+  const f = {
+    version: S(ws,"BC3"),
+    ficha: S(ws,"AL7"),
+    capt: {d:N(ws,"G7"), m:N(ws,"I7"), y:N(ws,"K7")},
+    gen:  {d:N(ws,"X7"), m:N(ws,"Z7"), y:N(ws,"AB7")},
+    nom1:S(ws,"C11"), nom2:S(ws,"O11"), ape1:S(ws,"AA11"), ape2:S(ws,"AM11"),
+    sexo:N(ws,"BB11"), genero:N(ws,"BI11"),
+    tipoDoc:N(ws,"J13"), doc:S(ws,"R13"),
+    nac:{d:N(ws,"AJ13"), m:N(ws,"AL13"), y:N(ws,"AN13")},
+    regimen:N(ws,"AZ13"), eapb:N(ws,"BI13"),
+    mcv:N(ws,"AJ15"),
+    nacion:S(ws,"H17").toUpperCase(), estCivil:N(ws,"N17"), etnia:N(ws,"S17"),
+    pobEsp:N(ws,"AE17"), gestante:S(ws,"AK17"), edadGest:N(ws,"AT17"),
+    nivEdu:N(ws,"BC17"), ocup:N(ws,"BI17"),
+    via:S(ws,"C21"), viaNum:S(ws,"G21"),
+    dirSegs:["C21","G21","J21","M21","P21","S21","X21","AA21","AD21","AG21","AJ21","AM21","AT21","AZ21","BC21","BI21"].map(a=>S(ws,a)),
+    zona:N(ws,"F23"), loc:N(ws,"M23"), upz:N(ws,"T23"), barrio:S(ws,"AC23"),
+    lat:S(ws,"AS23"), lon:S(ws,"BD23"),
+    tel1:S(ws,"G25"), tel2:S(ws,"V25"), correo:S(ws,"AM25"),
+    entGen:N(ws,"Y29"), compGen:N(ws,"AT29"),
+    rutas:[
+      {r:N(ws,"S34"), f:N(ws,"AF34"), m:N(ws,"AT34"), fila:34},
+      {r:N(ws,"S36"), f:N(ws,"AF36"), m:N(ws,"AT36"), fila:36},
+      {r:N(ws,"S38"), f:N(ws,"AF38"), m:N(ws,"AT38"), fila:38},
+    ],
+    osss:S(ws,"R40"),
+    modEAPB:S(ws,"AC46"), entRecibe:N(ws,"N46"), compRecibe:N(ws,"N49"),
+    interEnt:N(ws,"AR46"), interProg:N(ws,"AR48"), presSoc:S(ws,"AR50").toUpperCase(),
+    portEBEH:S(ws,"W51"),
+    sinAseg:[S(ws,"AX47"),S(ws,"AX49"),S(ws,"BH46"),S(ws,"BH48"),S(ws,"BH50")].some(x=>x!==""),
+    comentario:"",
+    quienNom:S(ws,"D61"), quienCed:S(ws,"T61"), quienProf:S(ws,"AJ61"), quienTel:S(ws,"AZ61"),
+    autSi:S(ws,"F68").toLowerCase()==="x", autNo:S(ws,"J68").toLowerCase()==="x",
+    acudiente:S(ws,"K72"), parentesco:S(ws,"I74"), firma:S(ws,"F76"), docAcu:S(ws,"F77"),
+    sheetNames: wb.SheetNames.slice(),
+  };
+  // Comentario: buscar el primer texto en el área B55:BB60 (excluye contador "de 1000")
+  outer:
+  for(let r=55; r<=60; r++){
+    for(let c=2; c<=54; c++){
+      const addr = XLSX.utils.encode_cell({r:r-1, c:c-1});
+      const v = S(ws, addr);
+      if(v && !/de 1000/i.test(v)){ f.comentario = v; break outer; }
+    }
+  }
+  const seg = f.dirSegs.map(x=>x.replace(/\.0$/,""));
+  const p1 = seg.slice(0,6).filter(Boolean).join(" ");
+  const p2 = seg.slice(6,10).filter(Boolean).join(" ");
+  const p3 = seg.slice(10,12).filter(Boolean).join(" ");
+  const p4 = seg.slice(12,16).filter(Boolean).join(" ");
+  f.dirFull = p1 + (p2? " # "+p2 : "") + (p3? " - "+p3 : "") + (p4? " "+p4 : "");
+  return f;
+}
+
+/* ================= UTILIDADES DE FECHA ================= */
+function fechaValida(o, minY){ 
+  if(o.d===null||o.m===null||o.y===null) return false;
+  if(o.d<1||o.d>31||o.m<1||o.m>12||o.y<(minY||1900)||o.y>2100) return false;
+  const dt = new Date(o.y, o.m-1, o.d);
+  return dt.getFullYear()===o.y && dt.getMonth()===o.m-1 && dt.getDate()===o.d;
+}
+function aDate(o){ return new Date(o.y, o.m-1, o.d); }
+function fmt(o){ return (o.d===null&&o.m===null&&o.y===null)? "—" : `${String(o.d??"?").padStart(2,"0")}/${String(o.m??"?").padStart(2,"0")}/${o.y??"????"}`; }
+function iso(d){ return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
+function esHabil(d){ const wd=d.getDay(); return wd!==0 && wd!==6 && !FESTIVOS.includes(iso(d)); }
+function sigHabil(d){ const n=new Date(d); do{ n.setDate(n.getDate()+1); }while(!esHabil(n)); return n; }
+function edadEn(nac, ref){
+  let y = ref.getFullYear()-nac.getFullYear();
+  let m = ref.getMonth()-nac.getMonth();
+  let dd = ref.getDate()-nac.getDate();
+  if(dd<0){ m--; }
+  if(m<0){ y--; m+=12; }
+  const dias = Math.floor((ref-nac)/86400000);
+  return {anios:y, meses:y*12+m, dias};
+}
+function mcvEsperado(edad){
+  if(edad<=5) return 1; if(edad<=11) return 2; if(edad<=17) return 3;
+  if(edad<=28) return 4; if(edad<=59) return 5; return 6;
+}
+
+/* ================= MOTOR DE REGLAS ================= */
+function validar(f, cfg){
+  const iss = [];
+  const E = (celda,sec,msg)=>iss.push({sev:"error",celda,sec,msg});
+  const A = (celda,sec,msg)=>iss.push({sev:"adv",celda,sec,msg});
+
+  /* --- Estructura y versión --- */
+  const HOJAS = ["Anexo 3","1","Archivo plano","Lista Codigos SIRC","Criterios Prescripcion Social","Instructivo","Codigos Paises","Hoja1","UPZ","Reglas de registro","Roles","Profesiones"];
+  const faltan = HOJAS.filter(h=>!f.sheetNames.includes(h));
+  const sobran = f.sheetNames.filter(h=>!HOJAS.includes(h));
+  if(faltan.length) E("—","Estructura",`Formato alterado: faltan hojas del instrumento (${faltan.join(", ")}).`);
+  if(sobran.length) E("—","Estructura",`Formato alterado: contiene hojas anexadas que no pertenecen al instrumento (${sobran.join(", ")}).`);
+
+  if(cfg.version && !f.version.toUpperCase().includes(cfg.version.toUpperCase()))
+    E("BC3","Versión",`El instrumento no es la versión vigente ${cfg.version}: se recibió "${f.version||"sin versión"}".`);
+
+  if(cfg.fichaBlank && f.ficha!=="")
+    A("AL7","Encabezado",`El Nº de ficha debe llegar en blanco a validación (lo diligencia el digitador al subir al SIRC). Trae: "${f.ficha}".`);
+
+  /* --- Fechas --- */
+  const okCapt = fechaValida(f.capt, 2017), okGen = fechaValida(f.gen, 2017), okNac = fechaValida(f.nac, 1900);
+  if(!okCapt) E("G7-K7","Fechas","La fecha de captación está incompleta o no es válida.");
+  if(!okGen)  E("X7-AB7","Fechas","La fecha de generación está incompleta o no es válida.");
+  if(!okNac)  E("AJ13-AN13","Identificación","La fecha de nacimiento está incompleta o no es válida.");
+
+  const anioActual = new Date().getFullYear();
+  if(okCapt && f.capt.y!==anioActual) E("G7-K7","Fechas",`El año de la fecha de captación debe ser el año en curso (${anioActual}).`);
+  if(okGen && f.gen.y!==anioActual) E("X7-AB7","Fechas",`El año de la fecha de generación debe ser el año en curso (${anioActual}).`);
+  let dCapt=null,dGen=null,dNac=null,edad=null;
+  if(okCapt) dCapt=aDate(f.capt);
+  if(okGen)  dGen=aDate(f.gen);
+  if(okNac)  dNac=aDate(f.nac);
+  if(dNac&&dCapt){
+    if(dNac>dCapt) E("AJ13-AN13","Fechas","La fecha de nacimiento es posterior a la fecha de captación.");
+    else edad = edadEn(dNac,dCapt);
+  }
+  if(dCapt&&dGen){
+    if(dCapt>dGen) E("X7-AB7","Fechas","La fecha de generación es anterior a la fecha de captación.");
+    else if(iso(dGen)!==iso(dCapt) && iso(dGen)!==iso(sigHabil(dCapt)))
+      E("X7-AB7","Fechas",`La generación (${fmt(f.gen)}) debe ser el mismo día de la captación (${fmt(f.capt)}) o máximo el siguiente día hábil (${sigHabil(dCapt).toLocaleDateString("es-CO")}).`);
+  }
+  if(dCapt){
+    const hoy=new Date(); hoy.setHours(0,0,0,0);
+    if(dCapt>hoy) A("G7-K7","Fechas","La fecha de captación es una fecha futura.");
+  }
+
+  /* --- Identificación --- */
+  const nomRe = /^[A-ZÁÉÍÓÚÜÑ' ]+$/i;
+  if(!f.nom1) E("C11","Identificación","Falta el primer nombre.");
+  else if(!nomRe.test(f.nom1)) E("C11","Identificación",`El primer nombre contiene caracteres inválidos: "${f.nom1}".`);
+  if(!f.ape1) E("AA11","Identificación","Falta el primer apellido.");
+  else if(!nomRe.test(f.ape1)) E("AA11","Identificación",`El primer apellido contiene caracteres inválidos: "${f.ape1}".`);
+  for(const [v,c] of [[f.nom2,"O11"],[f.ape2,"AM11"]])
+    if(v && !nomRe.test(v)) A(c,"Identificación",`Contiene caracteres inválidos: "${v}".`);
+
+  if(f.sexo===null) E("BB11","Identificación","Falta el sexo.");
+  if(f.genero===null) E("BI11","Identificación","Falta el género.");
+
+  if(f.tipoDoc===null) E("J13","Identificación","Falta el tipo de documento.");
+  const td = f.tipoDoc;
+  if(!f.doc) E("R13","Identificación","Falta el número de documento.");
+  else{
+    if([1,4,5].includes(td)){
+      const limpio = f.doc.replace(/\.0$/,"");
+      if(!/^\d+$/.test(limpio)) E("R13","Identificación",`Para ${CAT.tipoDoc[td]||"este documento"} el número debe ser solo numérico: "${f.doc}".`);
+      else if(limpio.length<6 || limpio.length>10) E("R13","Identificación",`El número de documento tiene ${limpio.length} dígitos; debe tener entre 6 y 10.`);
+    }
+    if(td===14){
+      const limpio = f.doc.replace(/\.0$/,"");
+      if(!/^\d+$/.test(limpio)) E("R13","Identificación",`Para PPT el número debe ser solo numérico: "${f.doc}".`);
+    }
+  }
+
+  /* --- Tipo de documento vs edad --- */
+  if(td!==null && edad){
+    const a = edad.anios, nomTd = CAT.tipoDoc[td]||("código "+td);
+    const eTd = (msg)=>E("J13","Identificación",msg);
+    if(td===1 && a<18) eTd(`Cédula de Ciudadanía con edad ${a} años: requiere 18 o más.`);
+    if(td===4 && (a<7||a>17)) eTd(`Tarjeta de Identidad con edad ${a} años: debe estar entre 7 y 17.`);
+    if(td===5){
+      if(a>=9) eTd(`Registro Civil con edad ${a} años: corresponde a menores de 7.`);
+      else if(a>=7) A("J13","Identificación",`Registro Civil con edad ${a} años: verifique en ADRES si aún figura con RC.`);
+    }
+    if(td===6 && edad.dias>31) eTd(`Certificado de Nacido Vivo con ${edad.dias} días de nacido: solo aplica hasta 1 mes de vida.`);
+    if(td===7 && a>=18) eTd(`"Menor sin identificar" con edad ${a} años: solo aplica a menores de 18.`);
+    if(td===8 && a<18) eTd(`"Adulto sin identificar" con edad ${a} años: solo aplica a mayores de edad.`);
+    if(td===13 && a>=7) A("J13","Identificación",`NUIP con edad ${a} años: normalmente corresponde a menores de 7.`);
+    if(td===11) E("J13","Identificación","El Permiso Especial de Permanencia (PEP) ya no es un documento vigente.");
+    if(td===9) A("J13","Identificación","Tarjeta de Extranjería: no es verificable en ADRES; revise el soporte del documento.");
+  }
+
+  /* --- Momento curso de vida --- */
+  if(edad){
+    const esperado = mcvEsperado(edad.anios);
+    if(f.mcv!==null && f.mcv!==esperado)
+      E("AJ15","Identificación",`El momento de curso de vida (${CAT.momentoCursoVida[f.mcv]||f.mcv}) no corresponde a la edad ${edad.anios} años (${CAT.momentoCursoVida[esperado]}).`);
+  }
+
+  /* --- Demográficas --- */
+  if(!f.nacion) E("H17","Identificación","Falta la nacionalidad.");
+  else if(!/^[A-Z]{3}$/.test(f.nacion)) E("H17","Identificación",`La nacionalidad debe ser un código de 3 letras: "${f.nacion}".`);
+  else if(f.nacion!=="COL" && [1,4,5,6].includes(td))
+    A("J13","Identificación",`Nacionalidad ${f.nacion} con documento ${CAT.tipoDoc[td]}: los documentos CC/TI/RC/CNV son para nacionales colombianos.`);
+
+  if(f.estCivil===null) E("N17","Identificación","Falta el estado civil.");
+  else if(edad){
+    if(edad.anios<=13 && f.estCivil!==6) E("N17","Identificación",`Usuario de ${edad.anios} años: el estado civil debe ser "No aplica".`);
+    if(edad.anios>=14 && f.estCivil===6) E("N17","Identificación",`Usuario de ${edad.anios} años: debe registrar un estado civil (mínimo "Soltero(a)"), no "No aplica".`);
+  }
+
+  if(f.etnia===null) E("S17","Identificación","Falta la etnia.");
+  if(f.pobEsp===null) E("AE17","Identificación","Falta la población especial / diferencial.");
+  if([3,9,10,11,12,14].includes(td) && f.pobEsp!==null && f.pobEsp!==21)
+    E("AE17","Identificación",`Documento de extranjería (${CAT.tipoDoc[td]}): la población especial/diferencial debe ser "21 · Migrante Internacional" (tiene "${CAT.poblacionEspecial[f.pobEsp]||f.pobEsp}").`);
+  if(td===2 && f.pobEsp!==null && f.pobEsp!==21 && f.nacion && f.nacion!=="COL")
+    A("AE17","Identificación","Pasaporte con nacionalidad extranjera: verifique si la población especial/diferencial debe ser \"21 · Migrante Internacional\".");
+
+  const ges = f.gestante.toLowerCase();
+  if(ges==="si" || ges==="sí"){
+    if(f.sexo!==null && f.sexo!==5) E("AK17","Identificación","Gestante marcada en usuario con sexo distinto de Mujer.");
+    if(edad && (edad.anios<10||edad.anios>50)) E("AK17","Identificación",`Gestante con edad ${edad.anios} años: solo aplica entre 10 y 50.`);
+    if(f.mcv===1||f.mcv===6) E("AK17","Identificación","Gestante no permitida en primera infancia ni vejez.");
+    if(f.edadGest===null) E("AT17","Identificación","Gestante sin edad gestacional diligenciada.");
+    else if(f.edadGest<1||f.edadGest>42) E("AT17","Identificación",`Edad gestacional ${f.edadGest} semanas: debe estar entre 1 y 42.`);
+  }
+
+  if(f.nivEdu===null) E("BC17","Identificación","Falta el nivel educativo.");
+  else if(edad){
+    const a=edad.anios, ne=f.nivEdu, txt=CAT.nivelEducativo[ne]||ne;
+    if(a<=3 && ne!==13) A("BC17","Identificación",`Nivel educativo "${txt}" en usuario de ${a} años: se espera "No Aplica".`);
+    if(a>=4&&a<=5 && ![1,13].includes(ne)) A("BC17","Identificación",`Nivel educativo "${txt}" en usuario de ${a} años: se espera "Preescolar".`);
+    if(a>=6&&a<=11 && ![1,2,3].includes(ne)) A("BC17","Identificación",`Nivel educativo "${txt}" en usuario de ${a} años: se espera primaria.`);
+    if(a>=12&&a<=17 && ![2,3,4,5].includes(ne)) A("BC17","Identificación",`Nivel educativo "${txt}" en usuario de ${a} años: se espera básica secundaria.`);
+  }
+
+  if(f.ocup===null) E("BI17","Identificación","Falta la ocupación.");
+  else if(edad){
+    const a=edad.anios, oc=f.ocup, txt=CAT.ocupacion[oc]||oc;
+    if(a<=3 && oc!==12) E("BI17","Identificación",`Ocupación "${txt}" en usuario de ${a} años: debe ser "No aplica".`);
+    if(a>=4 && a<=17 && oc!==3) E("BI17","Identificación",`Ocupación "${txt}" en usuario de ${a} años: entre los 4 y los 17 años la ocupación debe ser "Estudiante".`);
+    if(a>=18 && oc===3 && ![7,9,11].includes(f.nivEdu)) E("BI17","Identificación",`Ocupación "Estudiante" en mayor de edad: el nivel educativo debe ser técnica, tecnológica o superior incompleta (tiene "${CAT.nivelEducativo[f.nivEdu]||f.nivEdu}").`);
+  }
+
+  /* --- Régimen y EAPB --- */
+  if(f.regimen===null) E("AZ13","Afiliación","Falta el régimen de afiliación.");
+  if(f.eapb===null) E("BI13","Afiliación","Falta la EAPB.");
+  if(f.regimen!==null && f.eapb!==null){
+    if(f.regimen===4){
+      if(f.eapb!==1) E("BI13","Afiliación",`Régimen PNA (población no asegurada): la EAPB debe ser "Ninguno" (código 1); trae código ${f.eapb}.`);
+    } else if(f.regimen===1){
+      if(!CAT.eapbSubsidiado[f.eapb]) E("BI13","Afiliación",`La EAPB código ${f.eapb} no pertenece al listado del régimen Subsidiado.`);
+    } else if(f.regimen===2){
+      if(!CAT.eapbContributivo[f.eapb]) E("BI13","Afiliación",`La EAPB código ${f.eapb} no pertenece al listado del régimen Contributivo.`);
+    } else if(f.regimen===3){
+      if(!CAT.eapbGeneral[f.eapb]) E("BI13","Afiliación",`La EAPB código ${f.eapb} no existe en el listado general.`);
+    }
+  }
+
+  /* --- Dirección --- */
+  if(f.zona===null) E("F23","Dirección","Falta la zona (Urbana/Rural).");
+  if(f.zona===1){
+    if(!f.via || !f.viaNum) E("C21","Dirección","Zona urbana: el eje principal de la dirección debe estar diligenciado (vía y número).");
+  }
+  if(f.zona===2 && !f.barrio) E("AC23","Dirección","Zona rural: debe diligenciarse el nombre de la vereda.");
+  if(f.zona===2 && (!f.lat || !f.lon)) E("AS23","Dirección","Zona rural: deben diligenciarse las coordenadas (latitud y longitud).");
+  if(!f.barrio) E("AC23","Dirección","Falta el barrio o vereda.");
+  if(f.loc===null) E("M23","Dirección","Falta la localidad.");
+  else if(f.loc<1||f.loc>20) E("M23","Dirección",`La localidad ${f.loc} no existe: debe estar entre 1 y 20.`);
+  if(f.upz===null) E("T23","Dirección","Falta la UPZ/UPR.");
+  else if(f.loc!==null && CAT.upzLocalidad[f.upz]!==undefined && CAT.upzLocalidad[f.upz]!==f.loc)
+    E("T23","Dirección",`La UPZ ${f.upz} pertenece a ${CAT.localidades[CAT.upzLocalidad[f.upz]]||("localidad "+CAT.upzLocalidad[f.upz])}, no a la localidad ${f.loc} (${CAT.localidades[f.loc]||""}).`);
+
+  const telValido = s => { const t=String(s||"").replace(/\.0$/,"").replace(/\D/g,""); return /^3\d{9}$/.test(t) || /^601\d{7}$/.test(t); };
+  if(!f.tel1) E("G25","Dirección","Falta el teléfono 1.");
+  else if(!telValido(f.tel1)) E("G25","Dirección",`El teléfono 1 "${f.tel1.replace(/\.0$/,"")}" no tiene un formato válido: 10 dígitos iniciando en 3 (celular) o en 601 (fijo).`);
+  if(f.tel2 && !telValido(f.tel2)) E("V25","Dirección",`El teléfono 2 "${f.tel2.replace(/\.0$/,"")}" no tiene un formato válido: 10 dígitos iniciando en 3 (celular) o en 601 (fijo).`);
+  if(f.correo && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(f.correo))
+    A("AM25","Dirección",`El correo "${f.correo}" no tiene un formato válido.`);
+
+  /* --- Generador --- */
+  if(f.entGen===null) E("Y29","Generador","Falta el entorno/transversalidad que genera la canalización.");
+  else if(!CAT.entornos[f.entGen]) E("Y29","Generador",`El código de entorno generador ${f.entGen} no existe.`);
+  if(f.compGen===null) E("AT29","Generador","Falta el componente PSPIC que genera la canalización.");
+  else if(f.entGen!==null && !CAT.componentes[f.entGen+"-"+f.compGen])
+    E("AT29","Generador",`El componente ${f.compGen} no corresponde al entorno generador ${f.entGen}.`);
+
+  /* --- Modalidades --- */
+  const mEAPB = f.modEAPB.toLowerCase()==="si" || f.modEAPB.toLowerCase()==="sí";
+  const mEnt = f.entRecibe!==null;
+  const mInter = f.interEnt!==null || f.interProg!==null;
+  const mPres = f.presSoc==="SI" || f.presSoc==="SÍ";
+  const mEBEH = f.portEBEH!=="";
+  const mSinA = f.sinAseg;
+  const activas = [mEAPB&&"EAPB", mEnt&&"Entre entornos", (mInter||mPres)&&"Intersectorial/Prescripción social", mEBEH&&"EBE Hogar", mSinA&&"Sin aseguramiento"].filter(Boolean);
+
+  if(activas.length===0) E("—","Modalidades","No hay ninguna modalidad de canalización activa.");
+  if(mEAPB && mSinA) E("AC46","Modalidades","Las modalidades EAPB y Sin aseguramiento no pueden estar activas al mismo tiempo.");
+  if(mEAPB){
+    if(f.eapb===1||f.eapb===null) E("AC46","Modalidades","Modalidad EAPB activa pero el usuario no tiene EAPB válida.");
+    if([7,8].includes(td)) A("AC46","Modalidades","Modalidad EAPB con usuario sin identificar: la EAPB puede rechazar el caso sin documento válido.");
+  }
+  if(mEnt && f.compRecibe===null) E("N49","Modalidades","Modalidad entre entornos: falta el componente PSPIC que recibe.");
+  if(mEnt && f.entGen!==null && f.entRecibe===f.entGen && f.compRecibe!==null && f.compRecibe===f.compGen)
+    E("N49","Modalidades","El componente que recibe no puede ser el mismo componente que genera la canalización.");
+  if(mEBEH && f.entGen===17) E("Y29","Modalidades","La canalización se dirige a EBE Hogar: el generador no puede ser el mismo EBEH.");
+  if(mInter && f.interEnt===null) E("AR46","Modalidades","Modalidad intersectorial: falta la entidad a la que se envía.");
+  if(mSinA && f.regimen!==null && f.regimen!==4)
+    E("AZ13","Modalidades",`Modalidad sin aseguramiento con régimen ${CAT.regimen[f.regimen]||f.regimen}: se espera PNA.`);
+  if(f.regimen===4 && !mSinA)
+    E("AZ13","Modalidades","Usuario sin aseguramiento (régimen PNA, EAPB Ninguno): la modalidad Sin aseguramiento debe estar activa y diligenciada.");
+
+  /* --- Necesidad identificada --- */
+  const rutasDil = f.rutas.filter(x=>x.r!==null);
+  const soloSinAseg = mSinA && !mEAPB && !mEnt && !mInter && !mPres && !mEBEH;
+  if(rutasDil.length===0 && !soloSinAseg)
+    E("S34","Necesidad","No hay ninguna ruta de canalización diligenciada (solo se permite omitirla cuando la única modalidad es Sin aseguramiento).");
+  for(const rt of f.rutas){
+    if(rt.r===null){
+      if(rt.f!==null||rt.m!==null) E("S"+rt.fila,"Necesidad",`Fila de necesidad ${rt.fila===34?1:rt.fila===36?2:3}: hay finalidad o motivo sin código de ruta.`);
+      continue;
+    }
+    const cel = r=>r+rt.fila;
+    if(!CAT.rutas[rt.r]) E(cel("S"),"Necesidad",`El código de ruta ${rt.r} no existe.`);
+    if(rt.r===1 && rt.f===null) E(cel("AF"),"Necesidad","Ruta 1: falta el código de finalidad.");
+    if(rt.r!==1 && rt.f!==null) E(cel("AF"),"Necesidad",`El código de finalidad solo aplica para la Ruta 1 (la fila tiene Ruta ${rt.r}).`);
+    if(rt.m===null) E(cel("AT"),"Necesidad",`Ruta ${rt.r}: falta el motivo/riesgo de canalización.`);
+    else{
+      const key = rt.r+"-"+(rt.r===1?(rt.f??""):"")+"-"+rt.m;
+      const txt = CAT.motivos[key];
+      if(txt===undefined) E(cel("AT"),"Necesidad",`El motivo ${rt.m} no corresponde a la Ruta ${rt.r}${rt.r===1?(" finalidad "+(rt.f??"—")):""}.`);
+      else{
+        const low = txt.toLowerCase();
+        if(edad && f.sexo!==null){
+          if(/pr[oó]stata/.test(low) && f.sexo!==4) E(cel("AT"),"Necesidad",`Motivo "${txt.slice(0,60)}…" solo aplica a hombres.`);
+          if(/(citolog|vph|mamograf|c[aá]ncer de mama|examen cl[ií]nico de la mama|gestante|gestaci[oó]n|prenatal|pu[eé]rper|posparto|feminicidio)/.test(low) && f.sexo===4)
+            E(cel("AT"),"Necesidad",`Motivo "${txt.slice(0,60)}…" no aplica a usuarios con sexo Hombre.`);
+          if(/mamograf/.test(low) && edad.anios<50) A(cel("AT"),"Necesidad",`Motivo de mamografía en usuario de ${edad.anios} años: aplica desde los 50.`);
+          if(/(citolog|vph)/.test(low) && edad.anios<25) A(cel("AT"),"Necesidad",`Motivo de tamizaje cuello uterino en usuario de ${edad.anios} años: aplica desde los 25.`);
+        }
+        if(rt.r===9 && edad && !(ges==="si"||ges==="sí") && edad.anios>1)
+          A(cel("S"),"Necesidad","Ruta 9 (materno perinatal) en usuario que no es gestante ni neonato: verifique (aplica a gestantes, puérperas y recién nacidos).");
+      }
+    }
+  }
+
+  if(mPres && /sin datos/i.test(f.osss))
+    E("R40","Necesidad","Prescripción social activa: la escala OSSS-3 es obligatoria y figura \u201cSin datos\u201d.");
+
+  /* --- Comentarios, responsable, manejo de datos --- */
+  if(!f.comentario) E("C55","Cierre","El campo de comentarios y observaciones es obligatorio y debe corresponder a la ruta y modalidad.");
+  else{
+    if(f.comentario.length>1000) E("C55","Cierre","Los comentarios superan los 1.000 caracteres.");
+    if(f.comentario.length<30) A("C55","Cierre","La observación es muy breve: debe describir la situación del usuario y corresponder a las rutas y modalidades activadas.");
+  }
+  if(f.sexo===3 || f.genero===6){
+    const cual = f.sexo===3? "sexo \"Intersexual\"" : "género \"Transgénero\"";
+    if(!/(intersex|transg[eé]ner|trans\b)/i.test(f.comentario||""))
+      E("C55","Cierre",`El usuario está registrado con ${cual}: la observación debe confirmarlo expresamente.`);
+  }
+
+  if(!f.quienNom) E("D61","Cierre","Falta el nombre de quien realiza la canalización.");
+  if(!f.quienCed) E("T61","Cierre","Falta la cédula de quien realiza la canalización.");
+  if(!f.quienProf) E("AJ61","Cierre","Falta la profesión de quien realiza la canalización.");
+  if(!f.quienTel) E("AZ61","Cierre","Falta el teléfono de quien realiza la canalización.");
+  else if(!telValido(f.quienTel)) A("AZ61","Cierre",`El teléfono de quien canaliza "${String(f.quienTel).replace(/\.0$/,"")}" no tiene formato de teléfono (celular 3… o fijo 601…): verifique que no haya registrado un número de documento.`);
+  if(f.quienCed){
+    const cq = String(f.quienCed).replace(/\.0$/,"").replace(/\D/g,"");
+    if(!/^\d+$/.test(String(f.quienCed).replace(/\.0$/,"")) || cq.length<6 || cq.length>10)
+      A("T61","Cierre",`La cédula de quien canaliza "${String(f.quienCed).replace(/\.0$/,"")}" no tiene formato de documento (numérico de 6 a 10 dígitos).`);
+    else if(telValido(cq))
+      A("T61","Cierre",`La cédula de quien canaliza "${cq}" parece un número de teléfono: verifique que no los haya intercambiado.`);
+  }
+
+  if(!f.autSi && !f.autNo) E("F68","Cierre","La autorización de manejo de datos no está marcada.");
+  if(f.autNo) E("J68","Cierre","El usuario NO autorizó el manejo de datos: el formato se rechaza.");
+
+  if(edad && edad.anios<18){
+    if(f.acudiente.toLowerCase()!=="si" && f.acudiente.toLowerCase()!=="sí")
+      E("K72","Cierre","Usuario menor de edad: debe registrarse que cuenta con acudiente (Sí).");
+    if(!f.parentesco) E("I74","Cierre","Usuario menor de edad: falta el parentesco del acudiente.");
+    if(!f.firma) E("F76","Cierre","Usuario menor de edad: falta la firma (nombre) del acudiente.");
+    if(!f.docAcu) E("F77","Cierre","Usuario menor de edad: falta el documento del acudiente.");
+  }
+
+  return {issues:iss, edad, activas};
+}
+
+/* ================= UI ================= */
+const drop = document.getElementById("drop");
+const fileInput = document.getElementById("fileInput");
+const resultsEl = document.getElementById("results");
+
+drop.addEventListener("click", ()=>fileInput.click());
+drop.addEventListener("dragover", e=>{e.preventDefault(); drop.classList.add("over");});
+drop.addEventListener("dragleave", ()=>drop.classList.remove("over"));
+drop.addEventListener("drop", e=>{e.preventDefault(); drop.classList.remove("over"); procesar(e.dataTransfer.files);});
+fileInput.addEventListener("change", ()=>{procesar(fileInput.files); fileInput.value="";});
+document.getElementById("btnClear").addEventListener("click", ()=>{state.results=[]; render();});
+document.getElementById("btnExport").addEventListener("click", exportar);
+document.getElementById("btnCriterios").addEventListener("click", ()=>document.getElementById("modal").classList.add("show"));
+document.getElementById("modalClose").addEventListener("click", ()=>document.getElementById("modal").classList.remove("show"));
+document.getElementById("modal").addEventListener("click", e=>{ if(e.target.id==="modal") e.target.classList.remove("show"); });
+document.getElementById("modalRepClose").addEventListener("click", ()=>document.getElementById("modalRep").classList.remove("show"));
+document.getElementById("modalRep").addEventListener("click", e=>{ if(e.target.id==="modalRep") e.target.classList.remove("show"); });
+document.getElementById("btnRepLote").addEventListener("click", reporteLote);
+document.getElementById("repCopy").addEventListener("click", async function(){
+  try{ await navigator.clipboard.writeText(document.getElementById("repText").textContent);
+    this.textContent = "✔ Copiado"; setTimeout(()=>this.textContent="Copiar para el correo", 2500);
+  }catch(e){ alert("No fue posible copiar automáticamente. Seleccione el texto y copie manualmente."); }
+});
+
+async function procesar(fileList){
+  const cfg = { version: document.getElementById("ver").value.trim(), fichaBlank: document.getElementById("fichaBlank").checked };
+  const desde = state.results.length;
+  for(const file of fileList){
+    if(!/\.(xlsm|xlsx)$/i.test(file.name)) continue;
+    let res;
+    try{
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, {type:"array"});
+      const f = leerFicha(wb);
+      if(!f){ res = {file:file.name, fatal:"El archivo no contiene la hoja \u201c1\u201d del instrumento."}; }
+      else{
+        const v = validar(f, cfg);
+        res = {file:file.name, f, ...v, verif:{regimen:"",eapb:"",activo:"",bogota:"",nombres:"",fnac:"",direccion:"",fuente:"",obs:""}};
+      }
+    }catch(err){ res = {file:file.name, fatal:"No fue posible leer el archivo: "+err.message}; }
+    state.results.push(res);
+  }
+  render();
+  if(typeof registrarLote === "function") registrarLote(state.results.slice(desde));
+}
+
+function veredicto(r){
+  if(r.fatal) return "err";
+  const e = r.issues.filter(i=>i.sev==="error").length;
+  const a = r.issues.filter(i=>i.sev==="adv").length;
+  return e? "err" : (a? "warn" : "ok");
+}
+function esc(s){ return String(s).replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+const cod = (dic, code, vacio)=> code===null||code===undefined||code===""? (vacio||"—") : (code+" · "+(dic[code]||"¿código no existe?"));
+
+/* ---------- Recreación del instrumento con resaltado ---------- */
+function issuesDe(r, keys){
+  return r.issues.filter(i=>keys.includes(i.celda));
+}
+function fld(r, label, valor, keys, opts){
+  const iss = issuesDe(r, keys||[]);
+  const err = iss.some(i=>i.sev==="error"), adv = !err && iss.some(i=>i.sev==="adv");
+  const cls = err? "fld err" : adv? "fld warn" : "fld";
+  const vacio = valor===null||valor===undefined||String(valor).trim()==="";
+  const msgs = iss.map(i=>`<div class="fmsg ${i.sev==="error"?"m-e":"m-a"}">${i.sev==="error"?"✖":"⚠"} ${esc(i.msg)}</div>`).join("");
+  return `<div class="${cls}${opts&&opts.wide?" wide":""}">
+    <div class="lb">${esc(label)}${keys&&keys.length?` <span class="cellref">${esc(keys[0])}</span>`:""}</div>
+    <div class="vl${vacio?" empty":""}">${vacio? "(vacío)" : esc(valor)}</div>${msgs}</div>`;
+}
+
+function renderFormato(r){
+  const f = r.f;
+  const ges = f.gestante || "";
+  const eapbTxt = f.regimen===4 && f.eapb===1 ? "1 · Ninguno" : cod(CAT.eapbGeneral, f.eapb);
+  const modChip = (on, nombre)=>`<span class="mchip${on?" on":""}">${on?"✔ ":""}${nombre}</span>`;
+  const mEAPB = (f.modEAPB||"").toLowerCase().startsWith("si");
+  const mEnt = f.entRecibe!==null, mInter = f.interEnt!==null||f.interProg!==null;
+  const mPres = (f.presSoc||"").startsWith("SI")||(f.presSoc||"").startsWith("SÍ");
+  const mEBEH = f.portEBEH!=="", mSinA = f.sinAseg;
+
+  const rutasHtml = f.rutas.map((rt,i)=>{
+    const c = s=>s+rt.fila;
+    const motKey = rt.r!==null&&rt.m!==null? rt.r+"-"+(rt.r===1?(rt.f??""):"")+"-"+rt.m : null;
+    return `<div class="fgrid g3">
+      ${fld(r, "Ruta "+(i+1), rt.r===null? "" : cod(CAT.rutas, rt.r), [c("S")])}
+      ${fld(r, "Código de finalidad (solo Ruta 1)", rt.f===null? "" : cod(CAT.finalidades, rt.r+"-"+rt.f).replace(/^\d+-\d+/, rt.f), [c("AF")])}
+      ${fld(r, "Motivo / riesgo", rt.m===null? "" : rt.m+" · "+(motKey && CAT.motivos[motKey] ? CAT.motivos[motKey] : "¿no corresponde a la ruta?"), [c("AT")])}
+    </div>`;
+  }).join("");
+
+  return `<div class="form-view">
+    <div class="fsec">Encabezado</div>
+    <div class="fgrid g4">
+      ${fld(r, "Versión del formato", f.version, ["BC3"])}
+      ${fld(r, "Nº Ficha", f.ficha, ["AL7"])}
+      ${fld(r, "Fecha captación", fmt(f.capt), ["G7-K7"])}
+      ${fld(r, "Fecha generación", fmt(f.gen), ["X7-AB7"])}
+    </div>
+    <div class="fsec">1. Identificación del usuario</div>
+    <div class="fgrid g4">
+      ${fld(r, "1er. nombre", f.nom1, ["C11"])}
+      ${fld(r, "2do. nombre", f.nom2, ["O11"])}
+      ${fld(r, "1er. apellido", f.ape1, ["AA11"])}
+      ${fld(r, "2do. apellido", f.ape2, ["AM11"])}
+    </div>
+    <div class="fgrid g4">
+      ${fld(r, "Tipo de documento", cod(CAT.tipoDoc, f.tipoDoc), ["J13"])}
+      ${fld(r, "Nº documento", (f.doc||"").replace(/\.0$/,""), ["R13"])}
+      ${fld(r, "Fecha de nacimiento", fmt(f.nac), ["AJ13-AN13"])}
+      ${fld(r, "Edad calculada", r.edad? (r.edad.anios+" años ("+r.edad.dias+" días)") : "", [])}
+    </div>
+    <div class="fgrid g4">
+      ${fld(r, "Sexo", cod(CAT.sexo, f.sexo), ["BB11"])}
+      ${fld(r, "Género", cod(CAT.genero, f.genero), ["BI11"])}
+      ${fld(r, "Momento curso de vida", cod(CAT.momentoCursoVida, f.mcv), ["AJ15"])}
+      ${fld(r, "Nacionalidad", f.nacion, ["H17"])}
+    </div>
+    <div class="fgrid g4">
+      ${fld(r, "Estado civil", cod(CAT.estadoCivil, f.estCivil), ["N17"])}
+      ${fld(r, "Etnia", cod(CAT.etnia, f.etnia), ["S17"])}
+      ${fld(r, "Población especial / diferencial", cod(CAT.poblacionEspecial, f.pobEsp), ["AE17"])}
+      ${fld(r, "Gestante / semanas", ges? ges+(f.edadGest!==null? " · "+f.edadGest+" sem":"") : "", ["AK17","AT17"])}
+    </div>
+    <div class="fgrid g4">
+      ${fld(r, "Nivel educativo", cod(CAT.nivelEducativo, f.nivEdu), ["BC17"])}
+      ${fld(r, "Ocupación", cod(CAT.ocupacion, f.ocup), ["BI17"])}
+      ${fld(r, "Régimen de afiliación", cod(CAT.regimen, f.regimen), ["AZ13"])}
+      ${fld(r, "EAPB", eapbTxt, ["BI13"])}
+    </div>
+    <div class="fsec">Dirección de residencia</div>
+    <div class="fgrid g4">
+      ${fld(r, "Zona", f.zona===1?"1 · Urbana":f.zona===2?"2 · Rural":f.zona, ["F23"])}
+      ${fld(r, "Dirección completa", f.dirFull, ["C21"])}
+      ${fld(r, "Localidad", cod(CAT.localidades, f.loc), ["M23"])}
+      ${fld(r, "UPZ / UPR", f.upz===null? "" : f.upz+" · "+(CAT.upzNombre[f.upz]||"¿?"), ["T23"])}
+    </div>
+    <div class="fgrid g4">
+      ${fld(r, "Barrio / vereda", f.barrio, ["AC23"])}
+      ${fld(r, "Teléfono 1", (f.tel1||"").replace(/\.0$/,""), ["G25"])}
+      ${fld(r, "Teléfono 2", (f.tel2||"").replace(/\.0$/,""), ["V25"])}
+      ${fld(r, "Correo electrónico", f.correo, ["AM25"])}
+    </div>
+    <div class="fsec">Generador</div>
+    <div class="fgrid g2">
+      ${fld(r, "Entorno / transversalidad que genera", cod(CAT.entornos, f.entGen), ["Y29"])}
+      ${fld(r, "Componente PSPIC que genera", f.compGen===null? "" : f.compGen+" · "+(CAT.componentes[f.entGen+"-"+f.compGen]||"¿no corresponde al entorno?"), ["AT29"])}
+    </div>
+    <div class="fsec">Necesidad identificada</div>
+    ${rutasHtml}
+    <div class="fgrid g1">
+      ${fld(r, "Escala de Apoyo Social de Oslo (OSSS-3)", f.osss, ["R40"], {wide:true})}
+    </div>
+    <div class="fsec">Modalidades</div>
+    <div class="mchips">
+      ${modChip(mEnt,"Entre entornos")}${modChip(mEAPB,"EAPB")}${modChip(mInter||mPres,"Intersectorial / Prescripción social")}${modChip(mEBEH,"EBE Hogar")}${modChip(mSinA,"Sin aseguramiento")}
+    </div>
+    <div class="fgrid g4">
+      ${fld(r, "Requiere atención EAPB", f.modEAPB, ["AC46"])}
+      ${fld(r, "Entorno que recibe", cod(CAT.entornos, f.entRecibe, ""), [])}
+      ${fld(r, "Componente que recibe", f.compRecibe===null? "" : f.compRecibe+" · "+(CAT.componentes[f.entRecibe+"-"+f.compRecibe]||"¿?"), ["N49"])}
+      ${fld(r, "Entidad intersectorial", f.interEnt, ["AR46"])}
+    </div>
+    <div class="fgrid g4">
+      ${fld(r, "Prescripción social", f.presSoc, [])}
+      ${fld(r, "Portafolio EBE Hogar", f.portEBEH, [])}
+      ${fld(r, "Sin aseguramiento", mSinA? "Con datos diligenciados":"", ["AZ13"].filter(()=>mSinA))}
+      ${fld(r, "Modalidades activas", r.activas.join(", "), ["—"])}
+    </div>
+    <div class="fsec">Comentarios y observaciones</div>
+    <div class="fgrid g1">${fld(r, "Comentario ("+(f.comentario||"").length+" de 1000 caracteres)", f.comentario, ["C55"], {wide:true})}</div>
+    <div class="fsec">Datos de quien canaliza y manejo de datos</div>
+    <div class="fgrid g4">
+      ${fld(r, "Nombre", f.quienNom, ["D61"])}
+      ${fld(r, "Cédula", (f.quienCed||"").replace(/\.0$/,""), ["T61"])}
+      ${fld(r, "Profesión", f.quienProf, ["AJ61"])}
+      ${fld(r, "Teléfono", (f.quienTel||"").replace(/\.0$/,""), ["AZ61"])}
+    </div>
+    <div class="fgrid g4">
+      ${fld(r, "Autorización manejo de datos", f.autSi? "Sí" : f.autNo? "No" : "", ["F68","J68"])}
+      ${fld(r, "Cuenta con acudiente", f.acudiente, ["K72"])}
+      ${fld(r, "Parentesco del acudiente", f.parentesco, ["I74"])}
+      ${fld(r, "Firma / Doc. acudiente", [f.firma,(f.docAcu||"").replace(/\.0$/,"")].filter(Boolean).join(" · "), ["F76","F77"])}
+    </div>
+  </div>`;
+}
+
+/* ---------- Render principal ---------- */
+function render(){
+  const n = state.results.length;
+  document.getElementById("summary").style.display = n? "grid":"none";
+  document.getElementById("toolbar").style.display = n? "flex":"none";
+  if(!n){ resultsEl.innerHTML=""; return; }
+  let ok=0,er=0,wa=0;
+  state.results.forEach(r=>{const v=veredicto(r); if(v==="ok")ok++; else if(v==="err")er++; else wa++;});
+  document.getElementById("nTot").textContent=n;
+  document.getElementById("nOk").textContent=ok;
+  document.getElementById("nErr").textContent=er;
+  document.getElementById("nWarn").textContent=wa;
+  document.getElementById("lote").textContent = `Lote del ${new Date().toLocaleDateString("es-CO")}`;
+
+  resultsEl.innerHTML = state.results.map((r,idx)=>{
+    const v = veredicto(r);
+    const stampTxt = v==="ok"? "VALIDADO" : v==="err"? "CON ERRORES" : "CON OBSERVACIONES";
+    if(r.fatal){
+      return `<div class="card v-err open"><div class="card-head"><div class="rail"></div>
+        <div class="who"><div class="nm">${esc(r.file)}</div><div class="dc">${esc(r.fatal)}</div></div>
+        <div class="stamp"><span class="st-top">CALIDAD</span>NO LEGIBLE</div></div></div>`;
+    }
+    const f=r.f;
+    const nom = [f.nom1,f.nom2,f.ape1,f.ape2].filter(Boolean).join(" ") || "(sin nombre)";
+    const nErr=r.issues.filter(i=>i.sev==="error").length, nAdv=r.issues.filter(i=>i.sev==="adv").length;
+    const issuesHtml = r.issues.length?
+      r.issues.map(i=>`<div class="issue ${i.sev==="error"?"e":"a"}"><span class="tag">${i.sev==="error"?"ERROR":"AVISO"}</span><span class="cell">${esc(i.celda)}</span><span><b>${esc(i.sec)}:</b> ${esc(i.msg)}</span></div>`).join("")
+      : `<div class="allok">✔ El formato cumple todos los criterios de calidad.</div>`;
+    const rutasAct = f.rutas.filter(x=>x.r!==null).map(x=>x.r);
+    const cundi = rutasAct.some(x=>[5,6,8,10,13].includes(x));
+    const V = r.verif;
+    const selOpts = val=>["", "Coincide", "No coincide", "No verificado"].map(o=>`<option ${o===val?"selected":""}>${o}</option>`).join("");
+    const selCls = val=> val==="Coincide"?"s-ok": val==="No coincide"?"s-bad":"";
+    return `<div class="card v-${v}" data-idx="${idx}">
+      <div class="card-head" onclick="this.parentElement.classList.toggle('open')">
+        <div class="rail"></div>
+        <div class="who">
+          <div class="nm">${esc(nom)}</div>
+          <div class="dc">${esc(CAT.tipoDoc[f.tipoDoc]||"Tipo doc ?")} ${esc((f.doc||"").replace(/\.0$/,""))} · ${r.edad? r.edad.anios+" años":"edad ?"} · Capt. ${fmt(f.capt)}</div>
+          <div class="fl">${esc(r.file)}</div>
+        </div>
+        <div class="counts">${nErr?`<span class="pill e">${nErr} error${nErr>1?"es":""}</span>`:""}${nAdv?`<span class="pill w">${nAdv} aviso${nAdv>1?"s":""}</span>`:""}</div>
+        <div class="stamp"><span class="st-top">CALIDAD</span>${stampTxt}</div>
+      </div>
+      <div class="card-body">
+        <div class="tabs">
+          <button class="tab on" onclick="verTab(this,'p-res')">Errores y avisos ${r.issues.length?`(${r.issues.length})`:""}</button>
+          <button class="tab" onclick="verTab(this,'p-form')">Formato diligenciado</button>
+          <button class="tab" onclick="verTab(this,'p-verif')">Verificación de afiliación</button>
+        </div>
+        <div class="pane p-res on">
+          <div class="eyebrow" style="margin-bottom:8px;">Modalidades activas: ${esc(r.activas.join(", ")||"ninguna")}</div>
+          ${issuesHtml}
+          <div style="margin-top:12px;"><button class="btn sm" onclick="verReporte(${idx})">📄 Generar reporte de devolución</button></div>
+        </div>
+        <div class="pane p-form">${renderFormato(r)}</div>
+        <div class="pane p-verif">
+          <div class="verif">
+            <div class="verif-h"><span>VERIFICACIÓN DE AFILIACIÓN (ADRES / COMPROBADOR)</span></div>
+            <div class="verif-b">
+              <div class="vdata">
+                <div class="vd"><div class="k">Documento</div><div class="v">${esc(CAT.tipoDoc[f.tipoDoc]||"?")} · ${esc((f.doc||"").replace(/\.0$/,""))}</div></div>
+                <div class="vd"><div class="k">Nombres</div><div class="v">${esc(nom)}</div></div>
+                <div class="vd"><div class="k">Fecha nacimiento</div><div class="v">${fmt(f.nac)}</div></div>
+                <div class="vd"><div class="k">Régimen declarado</div><div class="v">${esc(CAT.regimen[f.regimen]||"—")}</div></div>
+                <div class="vd"><div class="k">EAPB declarada</div><div class="v">${esc(f.regimen===4&&f.eapb===1?"Ninguno":(CAT.eapbGeneral[f.eapb]||"—"))}</div></div>
+              </div>
+              <div class="vbtns">
+                <button class="btn sm" onclick="abrirVerif(${idx},'adres', this)">Copiar documento y abrir ADRES</button>
+                <button class="btn sm ghost" onclick="abrirVerif(${idx},'comprobador', this)">Copiar documento y abrir Comprobador</button>
+                <button class="btn sm ghost" onclick="abrirVerif(${idx},'geo', this)">Copiar dirección y abrir Geocodificador</button>
+              </div>
+              <div class="vchecks">
+                ${[["regimen","Régimen"],["eapb","EAPB"],["activo","Estado Activo"],["bogota","Afiliado en Bogotá"],["nombres","Nombres"],["fnac","Fecha de nacimiento"],["direccion","Dirección (Geocodificador)"]].map(([k,lbl])=>
+                  `<div class="vc"><span>${lbl}</span><select class="${selCls(V[k])}" onchange="setVerif(${idx},'${k}',this.value); this.className=this.value==='Coincide'?'s-ok':this.value==='No coincide'?'s-bad':'';">${selOpts(V[k])}</select></div>`).join("")}
+                <div class="vc"><span>Verificado en</span><select onchange="setVerif(${idx},'fuente',this.value)">${["","ADRES","Comprobador","Ambas"].map(o=>`<option ${o===V.fuente?"selected":""}>${o}</option>`).join("")}</select></div>
+              </div>
+              ${cundi? `<div class="vnote">ℹ️ Este caso tiene activa una ruta 5, 6, 8, 10 o 13: si el usuario figura afiliado en municipios de Cundinamarca (Chía, Soacha, Sopó, La Calera), aplica la excepción de recepción del caso.</div>`:""}
+              <div class="vobs"><textarea placeholder="Observación de la verificación (opcional)" onchange="setVerif(${idx},'obs',this.value)">${esc(V.obs)}</textarea></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  }).join("");
+}
+
+function verTab(btn, cls){
+  const body = btn.closest(".card-body");
+  body.querySelectorAll(".tab").forEach(t=>t.classList.remove("on"));
+  btn.classList.add("on");
+  body.querySelectorAll(".pane").forEach(p=>p.classList.toggle("on", p.classList.contains(cls)));
+}
+
+function setVerif(idx,k,val){ state.results[idx].verif[k]=val; }
+
+async function abrirVerif(idx, sitio, btn){
+  const f = state.results[idx].f;
+  let texto, url, aviso;
+  if(sitio==="geo"){
+    texto = f.dirFull || [f.via, f.viaNum].filter(Boolean).join(" ");
+    url = "https://sig.saludcapital.gov.co/geocodificardireccion/";
+    aviso = "✔ Dirección copiada — pegue con Ctrl+V";
+  } else {
+    texto = (f.doc||"").replace(/\.0$/,"");
+    url = sitio==="adres"? "https://www.adres.gov.co/consulte-su-eps" : "https://appb.saludcapital.gov.co/comprobadorDeDerechos/Consulta.aspx";
+    aviso = "✔ Documento copiado — pegue con Ctrl+V";
+  }
+  try{ await navigator.clipboard.writeText(texto); }catch(e){}
+  const old = btn.textContent;
+  btn.textContent = aviso; setTimeout(()=>btn.textContent=old, 3500);
+  window.open(url, "_blank");
+}
+
+
+/* ---------- Reportes de devolución ---------- */
+const HOY = ()=> new Date().toLocaleDateString("es-CO", {day:"2-digit", month:"2-digit", year:"numeric"});
+function cabecera(titulo){
+  return titulo + "\n" +
+  "Verificación de calidad — Instrumento de Canalización\n" +
+  "Subred Integrada de Servicios de Salud Norte E.S.E. · Equipo Canalizaciones\n" +
+  "Fecha de verificación: " + HOY() + "\n" +
+  "────────────────────────────────────────────\n";
+}
+function bloqueArchivo(r, n){
+  const f = r.f;
+  const nom = [f.nom1,f.nom2,f.ape1,f.ape2].filter(Boolean).join(" ") || "(sin nombre)";
+  const doc = (CAT.tipoDoc[f.tipoDoc]||"") + " " + (f.doc||"").replace(/\.0$/,"");
+  const errs = r.issues.filter(i=>i.sev==="error");
+  const advs = r.issues.filter(i=>i.sev==="adv");
+  const est = errs.length? "DEVUELTO PARA CORRECCIÓN" : advs.length? "ACEPTADO CON OBSERVACIONES" : "VALIDADO SIN OBSERVACIONES";
+  let t = (n!==undefined? n+") " : "") + "Usuario: " + nom + " — " + doc.trim() + "\n";
+  t += "   Archivo: " + r.file + " · Fecha de captación: " + fmt(f.capt) + "\n";
+  t += "   Resultado: " + est + (errs.length||advs.length? " ("+errs.length+" errores, "+advs.length+" avisos)":"") + "\n";
+  if(errs.length){
+    t += "   Motivos de devolución y correcciones requeridas:\n";
+    const secs = [...new Set(errs.map(i=>i.sec))];
+    let k = 0;
+    for(const s of secs){
+      t += "   ● " + s + ":\n";
+      errs.filter(i=>i.sec===s).forEach(i=>{ k++; t += "     " + k + ". (casilla " + i.celda + ") " + i.msg + "\n"; });
+    }
+  }
+  if(advs.length){
+    t += "   Avisos (no impiden la digitación, se solicita revisar):\n";
+    advs.forEach(i=> t += "     • [" + i.celda + " · " + i.sec + "] " + i.msg + "\n");
+  }
+  return t;
+}
+function verReporte(idx){
+  const r = state.results[idx];
+  if(r.fatal) return;
+  const f = r.f;
+  let t = cabecera("REPORTE DE DEVOLUCIÓN — VERIFICACIÓN DE CALIDAD");
+  t += bloqueArchivo(r) ;
+  t += "\nProfesional que canaliza: " + (f.quienNom||"(sin registrar)") + (f.quienCed? " · CC "+String(f.quienCed).replace(/\.0$/,""):"") + "\n";
+  const errs = r.issues.filter(i=>i.sev==="error");
+  t += "\n" + (errs.length?
+    "Se solicita realizar las correcciones indicadas y remitir nuevamente el instrumento para verificación de calidad antes de su digitación en el SIRC." :
+    "El instrumento cumple los criterios de calidad y continúa a verificación de afiliación y digitación en el SIRC.") + "\n";
+  t += "\nEquipo de Verificación de Calidad — Canalizaciones\nSubred Integrada de Servicios de Salud Norte E.S.E.";
+  document.getElementById("repTitle").textContent = "Reporte de devolución — " + ([f.nom1,f.ape1].filter(Boolean).join(" ")||r.file);
+  document.getElementById("repText").textContent = t;
+  document.getElementById("modalRep").classList.add("show");
+}
+function reporteLote(){
+  if(!state.results.length) return;
+  const conError = state.results.filter(r=>!r.fatal && r.issues.some(i=>i.sev==="error"));
+  const soloAviso = state.results.filter(r=>!r.fatal && !r.issues.some(i=>i.sev==="error") && r.issues.some(i=>i.sev==="adv"));
+  const limpios = state.results.filter(r=>!r.fatal && !r.issues.length);
+  const fatales = state.results.filter(r=>r.fatal);
+  let t = cabecera("REPORTE DE DEVOLUCIONES — LOTE DEL " + HOY());
+  t += "Formatos verificados: " + state.results.length + " · Validados: " + limpios.length + " · Con observaciones: " + soloAviso.length + " · Devueltos: " + conError.length + (fatales.length? " · No legibles: "+fatales.length : "") + "\n\n";
+  if(conError.length){
+    // Agrupar por profesional que canaliza
+    const grupos = {};
+    conError.forEach(r=>{ const k = (r.f.quienNom||"(SIN PROFESIONAL REGISTRADO)").toUpperCase(); (grupos[k]=grupos[k]||[]).push(r); });
+    t += "FORMATOS DEVUELTOS PARA CORRECCIÓN\n";
+    for(const prof of Object.keys(grupos).sort()){
+      t += "\n▸ Profesional: " + prof + " (" + grupos[prof].length + " formato" + (grupos[prof].length>1?"s":"") + ")\n";
+      grupos[prof].forEach((r,k)=>{ t += bloqueArchivo(r, k+1); });
+    }
+  } else {
+    t += "No se presentaron formatos devueltos en este lote.\n";
+  }
+  if(soloAviso.length){
+    t += "\nFORMATOS ACEPTADOS CON OBSERVACIONES\n";
+    soloAviso.forEach((r,k)=> t += bloqueArchivo(r, k+1));
+  }
+  if(fatales.length){
+    t += "\nARCHIVOS NO LEGIBLES\n";
+    fatales.forEach(r=> t += "  • " + r.file + ": " + r.fatal + "\n");
+  }
+  t += "\nSe solicita a cada profesional realizar las correcciones indicadas y remitir nuevamente los instrumentos para verificación.\n";
+  t += "\nEquipo de Verificación de Calidad — Canalizaciones\nSubred Integrada de Servicios de Salud Norte E.S.E.";
+  document.getElementById("repTitle").textContent = "Reporte de devoluciones del lote";
+  document.getElementById("repText").textContent = t;
+  document.getElementById("modalRep").classList.add("show");
+}
+
+function exportar(){
+  if(!state.results.length) return;
+  const resumen = [["Archivo","Usuario","Tipo documento","N° documento","Edad","Estado calidad","Errores","Advertencias","Régimen","EAPB","V. Régimen","V. EAPB","V. Activo","V. Bogotá","V. Nombres","V. Fecha nac.","V. Dirección","Verificado en","Observación verificación","Detalle de calidad"]];
+  const detalle = [["Archivo","Usuario","Documento","Severidad","Sección","Casilla","Descripción"]];
+  for(const r of state.results){
+    if(r.fatal){ resumen.push([r.file,"","","","","NO LEGIBLE","","","","","","","","","","","","",r.fatal]); continue; }
+    const f=r.f, nom=[f.nom1,f.nom2,f.ape1,f.ape2].filter(Boolean).join(" ");
+    const nErr=r.issues.filter(i=>i.sev==="error").length, nAdv=r.issues.filter(i=>i.sev==="adv").length;
+    const est = nErr? "CON ERRORES" : nAdv? "CON OBSERVACIONES" : "VALIDADO";
+    const det = r.issues.map(i=>`[${i.sev==="error"?"ERROR":"AVISO"} ${i.celda}] ${i.msg}`).join(" | ");
+    const V=r.verif;
+    resumen.push([r.file, nom, CAT.tipoDoc[f.tipoDoc]||"", (f.doc||"").replace(/\.0$/,""), r.edad?r.edad.anios:"", est, nErr, nAdv,
+      CAT.regimen[f.regimen]||"", (f.regimen===4&&f.eapb===1)?"Ninguno":(CAT.eapbGeneral[f.eapb]||""),
+      V.regimen,V.eapb,V.activo,V.bogota,V.nombres,V.fnac,V.direccion||"",V.fuente,V.obs, det]);
+    for(const i of r.issues) detalle.push([r.file, nom, (f.doc||"").replace(/\.0$/,""), i.sev==="error"?"ERROR":"ADVERTENCIA", i.sec, i.celda, i.msg]);
+  }
+  const wb = XLSX.utils.book_new();
+  const ws1 = XLSX.utils.aoa_to_sheet(resumen); ws1["!cols"]=resumen[0].map((_,i)=>({wch:i===19?60:i===1?28:14}));
+  const ws2 = XLSX.utils.aoa_to_sheet(detalle); ws2["!cols"]=[{wch:26},{wch:28},{wch:12},{wch:12},{wch:14},{wch:9},{wch:80}];
+  XLSX.utils.book_append_sheet(wb, ws1, "Resumen");
+  XLSX.utils.book_append_sheet(wb, ws2, "Detalle");
+  const d=new Date(), stamp=d.getFullYear()+String(d.getMonth()+1).padStart(2,"0")+String(d.getDate()).padStart(2,"0");
+  XLSX.writeFile(wb, `Validacion_Calidad_Canalizaciones_${stamp}.xlsx`);
+}
+
+</script>
+<script>
+/* ================= AUTENTICACIÓN Y ESTADÍSTICAS (Firebase) ================= */
+const firebaseConfig = {
+  apiKey: "AIzaSyAAt87nZEZIq6q7faz2Cr0q8ZbEsVyf7Xs",
+  authDomain: "validador-canalizaciones.firebaseapp.com",
+  projectId: "validador-canalizaciones",
+  storageBucket: "validador-canalizaciones.firebasestorage.app",
+  messagingSenderId: "515353598405",
+  appId: "1:515353598405:web:65e711d31d505fa422d3ac"
+};
+
+let fbAuth = null, fbDb = null, usuarioActual = null;
+
+function diaISO(d){ return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
+
+(function initFirebase(){
+  const err = document.getElementById("loginError");
+  if(typeof firebase === "undefined"){
+    err.textContent = "No fue posible cargar el módulo de autenticación. Verifique su conexión a internet y recargue la página.";
+    err.style.display = "block";
+    return;
+  }
+  try{
+    firebase.initializeApp(firebaseConfig);
+    fbAuth = firebase.auth();
+    fbDb = firebase.firestore();
+    fbAuth.onAuthStateChanged(u=>{
+      usuarioActual = u;
+      document.getElementById("login").classList.toggle("hide", !!u);
+      document.getElementById("sesion").style.display = u? "flex":"none";
+      if(u) document.getElementById("userEmail").textContent = u.email;
+      else { state.results = []; render(); }
+    });
+  }catch(e){
+    err.textContent = "Error iniciando la autenticación: " + e.message;
+    err.style.display = "block";
+  }
+})();
+
+document.getElementById("loginForm").addEventListener("submit", async e=>{
+  e.preventDefault();
+  const err = document.getElementById("loginError");
+  err.style.display = "none";
+  const btn = document.getElementById("loginBtn");
+  btn.disabled = true; btn.textContent = "Ingresando…";
+  try{
+    await fbAuth.signInWithEmailAndPassword(
+      document.getElementById("loginEmail").value.trim(),
+      document.getElementById("loginPass").value
+    );
+  }catch(ex){
+    const m = {"auth/invalid-credential":"Correo o contraseña incorrectos.","auth/user-not-found":"El correo no está registrado.","auth/wrong-password":"Correo o contraseña incorrectos.","auth/too-many-requests":"Demasiados intentos. Espere unos minutos e intente de nuevo.","auth/invalid-email":"El correo no tiene un formato válido.","auth/network-request-failed":"Sin conexión. Verifique su internet."};
+    err.textContent = m[ex.code] || ("No fue posible ingresar: " + ex.message);
+    err.style.display = "block";
+  }
+  btn.disabled = false; btn.textContent = "Ingresar";
+});
+
+document.getElementById("btnLogout").addEventListener("click", ()=>{ if(fbAuth) fbAuth.signOut(); });
+
+/* --- Registro de lotes validados --- */
+async function registrarLote(nuevos){
+  if(!usuarioActual || !fbDb || !nuevos.length) return;
+  let conError=0, conAviso=0, limpias=0, noLegibles=0;
+  for(const r of nuevos){
+    if(r.fatal){ noLegibles++; continue; }
+    const e = r.issues.some(i=>i.sev==="error"), a = r.issues.some(i=>i.sev==="adv");
+    if(e) conError++; else if(a) conAviso++; else limpias++;
+  }
+  try{
+    await fbDb.collection("profesionales").doc(usuarioActual.uid).collection("lotes").add({
+      fecha: firebase.firestore.FieldValue.serverTimestamp(),
+      dia: diaISO(new Date()),
+      total: nuevos.length, conError, conAviso, limpias, noLegibles
+    });
+  }catch(e){ console.warn("No se pudo registrar el lote:", e.message); }
+}
+
+/* --- Estadísticas --- */
+document.getElementById("btnStats").addEventListener("click", ()=>{
+  document.getElementById("modalStats").classList.add("show");
+  consultarStats("hoy");
+});
+document.getElementById("modalStatsClose").addEventListener("click", ()=>document.getElementById("modalStats").classList.remove("show"));
+document.getElementById("modalStats").addEventListener("click", e=>{ if(e.target.id==="modalStats") e.target.classList.remove("show"); });
+document.querySelectorAll("[data-rango]").forEach(b=>b.addEventListener("click", ()=>consultarStats(b.dataset.rango)));
+document.getElementById("stMesBtn").addEventListener("click", ()=>{
+  const v = document.getElementById("stMes").value;
+  if(v) consultarStats("mes", v);
+});
+document.getElementById("stRangoBtn").addEventListener("click", ()=>{
+  const d1 = document.getElementById("stD1").value, d2 = document.getElementById("stD2").value;
+  if(d1 && d2) consultarStats("rango", [d1,d2]);
+});
+
+async function consultarStats(tipo, extra){
+  if(!usuarioActual || !fbDb) return;
+  const out = document.getElementById("statsOut");
+  out.innerHTML = '<div class="stLoad">Consultando…</div>';
+  const hoy = new Date(); let d1, d2, titulo;
+  const ayer = new Date(hoy); ayer.setDate(ayer.getDate()-1);
+  if(tipo==="hoy"){ d1=d2=diaISO(hoy); titulo="Hoy ("+d1+")"; }
+  else if(tipo==="ayer"){ d1=d2=diaISO(ayer); titulo="Ayer ("+d1+")"; }
+  else if(tipo==="semana"){ const l=new Date(hoy); const dw=(l.getDay()+6)%7; l.setDate(l.getDate()-dw); d1=diaISO(l); d2=diaISO(hoy); titulo="Esta semana ("+d1+" a "+d2+")"; }
+  else if(tipo==="esteMes"){ d1=diaISO(new Date(hoy.getFullYear(),hoy.getMonth(),1)); d2=diaISO(hoy); titulo="Este mes ("+d1+" a "+d2+")"; }
+  else if(tipo==="mes"){ const [y,m]=extra.split("-").map(Number); d1=diaISO(new Date(y,m-1,1)); d2=diaISO(new Date(y,m,0)); titulo="Mes "+extra; }
+  else { d1=extra[0]; d2=extra[1]; titulo="Del "+d1+" al "+d2; }
+  try{
+    const snap = await fbDb.collection("profesionales").doc(usuarioActual.uid).collection("lotes")
+      .where("dia",">=",d1).where("dia","<=",d2).get();
+    let total=0, conError=0, conAviso=0, limpias=0, noLegibles=0, lotes=0;
+    const porDia = {};
+    snap.forEach(doc=>{
+      const x = doc.data(); lotes++;
+      total+=x.total||0; conError+=x.conError||0; conAviso+=x.conAviso||0; limpias+=x.limpias||0; noLegibles+=x.noLegibles||0;
+      porDia[x.dia] = (porDia[x.dia]||0) + (x.total||0);
+    });
+    const pct = n=> total? Math.round(n*100/total)+"%":"0%";
+    let html = '<div class="eyebrow" style="margin:6px 0 10px;">'+titulo+' · '+lotes+' lote'+(lotes===1?"":"s")+'</div>';
+    html += '<div class="stGrid">'
+      + stBox(total,"Formatos validados","")
+      + stBox(limpias,"Sin errores ni avisos",pct(limpias),"ok")
+      + stBox(conAviso,"Con avisos",pct(conAviso),"warn")
+      + stBox(conError,"Con errores",pct(conError),"err")
+      + (noLegibles? stBox(noLegibles,"No legibles","","err"):"")
+      + '</div>';
+    const dias = Object.keys(porDia).sort();
+    if(dias.length>1){
+      html += '<div class="eyebrow" style="margin:14px 0 6px;">Por día</div><div class="stDias">'
+        + dias.map(d=>'<span class="stDia">'+d+': <b>'+porDia[d]+'</b></span>').join("") + '</div>';
+    }
+    if(!total) html += '<div class="stLoad">No hay validaciones registradas en este periodo.</div>';
+    out.innerHTML = html;
+  }catch(e){
+    out.innerHTML = '<div class="stLoad">Error consultando: '+e.message+'</div>';
+  }
+}
+function stBox(n, l, p, cls){
+  return '<div class="stat '+(cls||"")+'"><div class="n">'+n+(p?' <span style="font-size:14px;color:var(--muted);">('+p+')</span>':'')+'</div><div class="l">'+l+'</div></div>';
+}
+
+</script>
+</body>
+</html>
