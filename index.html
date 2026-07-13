@@ -278,7 +278,9 @@
 <div class="crit"><span class="cs E">ERROR</span><span>Sexo, género, nacionalidad, estado civil, etnia y población especial/diferencial obligatorios.</span></div>
 <div class="crit"><span class="cs A">AVISO</span><span>Nacionalidad distinta de COL con documento CC/TI/RC/CNV: se avisa.</span></div>
 <div class="crit"><span class="cs E">ERROR</span><span>Documento de extranjería (CE, TE, Salvoconducto, PEP, Carné Diplomático, PPT): la población especial/diferencial debe ser "21 · Migrante Internacional".</span></div>
+<div class="crit"><span class="cs E">ERROR</span><span>Coherencia sexo-género: "Hombre + Femenino" y "Mujer + Masculino" no son combinaciones válidas; para personas transgénero el género debe ser "6 · Transgénero".</span></div>
 <div class="crit"><span class="cs E">ERROR</span><span>Usuario con sexo "Intersexual" o género "Transgénero": la observación debe confirmarlo expresamente.</span></div>
+<div class="crit"><span class="cs E">ERROR</span><span>El campo Gestante solo admite Si o No; y no puede haber edad gestacional sin Gestante = Si.</span></div>
 <div class="crit"><span class="cs E">ERROR</span><span>Estado civil: hasta 13 años debe ser "No aplica"; de 14 en adelante debe registrar un estado civil (mínimo Soltero/a).</span></div>
 <div class="crit"><span class="cs E">ERROR</span><span>Gestante solo en mujeres de 10 a 50 años (no primera infancia ni vejez), con edad gestacional obligatoria entre 1 y 42 semanas.</span></div>
 <div class="crit"><span class="cs A">AVISO</span><span>Nivel educativo coherente con la edad (0-3 "No aplica" · 4-5 Preescolar · 6-11 primaria · 12-17 secundaria).</span></div>
@@ -472,6 +474,8 @@ function validar(f, cfg){
 
   if(f.sexo===null) E("BB11","Identificación","Falta el sexo.");
   if(f.genero===null) E("BI11","Identificación","Falta el género.");
+  if(f.sexo===4 && f.genero===5) E("BI11","Identificación","Sexo \"Hombre\" con género \"Femenino\": combinación no válida. Si corresponde a una persona transgénero, el género debe ser \"6 · Transgénero\" y confirmarse en la observación.");
+  if(f.sexo===5 && f.genero===4) E("BI11","Identificación","Sexo \"Mujer\" con género \"Masculino\": combinación no válida. Si corresponde a una persona transgénero, el género debe ser \"6 · Transgénero\" y confirmarse en la observación.");
 
   if(f.tipoDoc===null) E("J13","Identificación","Falta el tipo de documento.");
   const td = f.tipoDoc;
@@ -533,6 +537,10 @@ function validar(f, cfg){
     A("AE17","Identificación","Pasaporte con nacionalidad extranjera: verifique si la población especial/diferencial debe ser \"21 · Migrante Internacional\".");
 
   const ges = f.gestante.toLowerCase();
+  if(f.gestante && !["si","sí","no"].includes(ges))
+    E("AK17","Identificación",`El campo Gestante tiene un valor no válido ("${f.gestante}"): solo admite Si o No.`);
+  if(f.edadGest!==null && ges!=="si" && ges!=="sí")
+    E("AT17","Identificación","Hay edad gestacional diligenciada sin marcar Gestante = Si.");
   if(ges==="si" || ges==="sí"){
     if(f.sexo!==null && f.sexo!==5) E("AK17","Identificación","Gestante marcada en usuario con sexo distinto de Mujer.");
     if(edad && (edad.anios<10||edad.anios>50)) E("AK17","Identificación",`Gestante con edad ${edad.anios} años: solo aplica entre 10 y 50.`);
