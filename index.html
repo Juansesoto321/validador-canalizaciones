@@ -158,6 +158,13 @@
   .stDias{display:flex; gap:8px; flex-wrap:wrap;}
   .stDia{background:var(--chip); border-radius:7px; padding:4px 10px; font-size:12.5px;}
 
+
+  .stTable{width:100%; border-collapse:collapse; font-size:13px; background:#fff;}
+  .stTable th{background:var(--petrol); color:#fff; padding:7px 9px; text-align:left; font-size:11.5px; letter-spacing:.05em; text-transform:uppercase;}
+  .stTable td{padding:7px 9px; border-bottom:1px solid var(--line);}
+  .stTable tr.peor td{background:var(--err-bg); font-weight:650;}
+
+  [data-scope]{opacity:.65;} [data-scope].scopeOn{opacity:1; outline:2px solid var(--petrol); outline-offset:1px;}
 </style>
 </head>
 <body>
@@ -198,6 +205,7 @@
     <span class="eyebrow" id="lote"></span>
     <div style="display:flex; gap:10px;">
       <button class="btn ghost" id="btnClear">Limpiar lote</button>
+      <button class="btn ghost" id="btnRepProf">Reporte por profesional</button>
       <button class="btn ghost" id="btnRepLote">Reporte de devoluciones</button>
       <button class="btn" id="btnExport">Descargar reporte (Excel)</button>
     </div>
@@ -233,6 +241,10 @@
   <div class="mbox">
     <div class="mhead"><h2>Mis estadísticas de validación</h2><button id="modalStatsClose">Cerrar</button></div>
     <div class="mbody">
+      <div class="stFiltros" style="border-bottom:1px solid var(--line); padding-bottom:10px;">
+        <button class="btn sm scopeOn" data-scope="mis">Mis validaciones</button>
+        <button class="btn sm ghost" data-scope="equipo">Todo el equipo</button>
+      </div>
       <div class="stFiltros">
         <button class="btn sm ghost" data-rango="hoy">Hoy</button>
         <button class="btn sm ghost" data-rango="ayer">Ayer</button>
@@ -731,6 +743,7 @@ document.getElementById("modal").addEventListener("click", e=>{ if(e.target.id==
 document.getElementById("modalRepClose").addEventListener("click", ()=>document.getElementById("modalRep").classList.remove("show"));
 document.getElementById("modalRep").addEventListener("click", e=>{ if(e.target.id==="modalRep") e.target.classList.remove("show"); });
 document.getElementById("btnRepLote").addEventListener("click", reporteLote);
+document.getElementById("btnRepProf").addEventListener("click", reporteProfesionales);
 document.getElementById("repCopy").addEventListener("click", async function(){
   try{ await navigator.clipboard.writeText(document.getElementById("repText").textContent);
     this.textContent = "✔ Copiado"; setTimeout(()=>this.textContent="Copiar para el correo", 2500);
@@ -1099,6 +1112,46 @@ function reporteLote(){
   document.getElementById("modalRep").classList.add("show");
 }
 
+
+/* ---------- Análisis por profesional que canaliza ---------- */
+function porProfesional(results){
+  const m = {};
+  for(const r of results){
+    if(r.fatal) continue;
+    const ced = String(r.f.quienCed||"").replace(/\.0$/,"");
+    const key = ced || (r.f.quienNom||"(SIN REGISTRAR)").toUpperCase();
+    const o = m[key] = m[key] || {nom:(r.f.quienNom||"(sin registrar)"), ced, tel:"", formatos:0, conError:0, conAviso:0, limpias:0, errores:0, secciones:{}};
+    o.formatos++;
+    if(!o.tel && r.f.quienTel) o.tel = String(r.f.quienTel).replace(/\.0$/,"");
+    const nE = r.issues.filter(i=>i.sev==="error");
+    const nA = r.issues.filter(i=>i.sev==="adv");
+    if(nE.length) o.conError++; else if(nA.length) o.conAviso++; else o.limpias++;
+    o.errores += nE.length;
+    for(const i of nE) o.secciones[i.sec]=(o.secciones[i.sec]||0)+1;
+  }
+  return Object.values(m).sort((a,b)=> b.conError-a.conError || b.errores-a.errores);
+}
+
+function reporteProfesionales(){
+  if(!state.results.length) return;
+  const profs = porProfesional(state.results);
+  let t = cabecera("REPORTE POR PROFESIONAL — CALIDAD DE DILIGENCIAMIENTO");
+  t += "Lote de " + state.results.length + " formato(s). Ordenado de mayor a menor cantidad de formatos con errores.\n\n";
+  profs.forEach((p,k)=>{
+    const pct = p.formatos? Math.round(p.conError*100/p.formatos) : 0;
+    t += (k+1) + ") " + p.nom.toUpperCase() + (p.ced? " · CC "+p.ced : "") + (p.tel? " · Cel " + p.tel : "") + "\n";
+    t += "   Formatos enviados: " + p.formatos + " · Con errores: " + p.conError + " (" + pct + "%) · Con avisos: " + p.conAviso + " · Sin novedades: " + p.limpias + " · Total de errores: " + p.errores + "\n";
+    const secs = Object.entries(p.secciones).sort((a,b)=>b[1]-a[1]);
+    if(secs.length) t += "   Secciones con más errores: " + secs.map(s=>s[0]+" ("+s[1]+")").join(", ") + "\n";
+    t += "\n";
+  });
+  t += "Este reporte es insumo para asistencias de fortalecimiento en el diligenciamiento del instrumento.\n";
+  t += "\nEquipo de Verificación de Calidad — Canalizaciones\nSubred Integrada de Servicios de Salud Norte E.S.E.";
+  document.getElementById("repTitle").textContent = "Reporte por profesional — lote actual";
+  document.getElementById("repText").textContent = t;
+  document.getElementById("modalRep").classList.add("show");
+}
+
 function exportar(){
   if(!state.results.length) return;
   const resumen = [["Archivo","Usuario","Tipo documento","N° documento","Edad","Estado calidad","Errores","Advertencias","Régimen","EAPB","V. Régimen","V. EAPB","V. Activo","V. Bogotá","V. Nombres","V. Fecha nac.","V. Dirección","Verificado en","Observación verificación","Detalle de calidad"]];
@@ -1120,6 +1173,11 @@ function exportar(){
   const ws2 = XLSX.utils.aoa_to_sheet(detalle); ws2["!cols"]=[{wch:26},{wch:28},{wch:12},{wch:12},{wch:14},{wch:9},{wch:80}];
   XLSX.utils.book_append_sheet(wb, ws1, "Resumen");
   XLSX.utils.book_append_sheet(wb, ws2, "Detalle");
+  const profs = porProfesional(state.results);
+  const hoja3 = [["Profesional","Cédula","Celular","Formatos enviados","Con errores","% con errores","Con avisos","Sin novedades","Total errores","Secciones con más errores"]];
+  for(const p of profs) hoja3.push([p.nom, p.ced, p.tel, p.formatos, p.conError, p.formatos? Math.round(p.conError*100/p.formatos)+"%":"", p.conAviso, p.limpias, p.errores, Object.entries(p.secciones).sort((a,b)=>b[1]-a[1]).map(s=>s[0]+" ("+s[1]+")").join(", ")]);
+  const ws3 = XLSX.utils.aoa_to_sheet(hoja3); ws3["!cols"]=[{wch:30},{wch:12},{wch:12},{wch:10},{wch:10},{wch:10},{wch:10},{wch:10},{wch:10},{wch:50}];
+  XLSX.utils.book_append_sheet(wb, ws3, "Por profesional");
   const d=new Date(), stamp=d.getFullYear()+String(d.getMonth()+1).padStart(2,"0")+String(d.getDate()).padStart(2,"0");
   XLSX.writeFile(wb, `Validacion_Calidad_Canalizaciones_${stamp}.xlsx`);
 }
@@ -1195,19 +1253,29 @@ async function registrarLote(nuevos){
     if(e) conError++; else if(a) conAviso++; else limpias++;
   }
   try{
-    await fbDb.collection("profesionales").doc(usuarioActual.uid).collection("lotes").add({
+    const pp = (typeof porProfesional==="function"? porProfesional(nuevos):[]).map(p=>({nom:p.nom, ced:p.ced, tel:p.tel, formatos:p.formatos, conError:p.conError, errores:p.errores}));
+    await fbDb.collection("lotes_equipo").add({
+      validadorUid: usuarioActual.uid,
+      validadorEmail: usuarioActual.email,
       fecha: firebase.firestore.FieldValue.serverTimestamp(),
       dia: diaISO(new Date()),
-      total: nuevos.length, conError, conAviso, limpias, noLegibles
+      total: nuevos.length, conError, conAviso, limpias, noLegibles,
+      porProfesional: pp
     });
   }catch(e){ console.warn("No se pudo registrar el lote:", e.message); }
 }
 
 /* --- Estadísticas --- */
+let stScope = "mis", stUltimo = ["hoy", null];
 document.getElementById("btnStats").addEventListener("click", ()=>{
   document.getElementById("modalStats").classList.add("show");
-  consultarStats("hoy");
+  consultarStats(stUltimo[0], stUltimo[1]);
 });
+document.querySelectorAll("[data-scope]").forEach(b=>b.addEventListener("click", ()=>{
+  stScope = b.dataset.scope;
+  document.querySelectorAll("[data-scope]").forEach(x=>x.classList.toggle("scopeOn", x===b));
+  consultarStats(stUltimo[0], stUltimo[1]);
+}));
 document.getElementById("modalStatsClose").addEventListener("click", ()=>document.getElementById("modalStats").classList.remove("show"));
 document.getElementById("modalStats").addEventListener("click", e=>{ if(e.target.id==="modalStats") e.target.classList.remove("show"); });
 document.querySelectorAll("[data-rango]").forEach(b=>b.addEventListener("click", ()=>consultarStats(b.dataset.rango)));
@@ -1222,6 +1290,7 @@ document.getElementById("stRangoBtn").addEventListener("click", ()=>{
 
 async function consultarStats(tipo, extra){
   if(!usuarioActual || !fbDb) return;
+  stUltimo = [tipo, extra];
   const out = document.getElementById("statsOut");
   out.innerHTML = '<div class="stLoad">Consultando…</div>';
   const hoy = new Date(); let d1, d2, titulo;
@@ -1233,8 +1302,11 @@ async function consultarStats(tipo, extra){
   else if(tipo==="mes"){ const [y,m]=extra.split("-").map(Number); d1=diaISO(new Date(y,m-1,1)); d2=diaISO(new Date(y,m,0)); titulo="Mes "+extra; }
   else { d1=extra[0]; d2=extra[1]; titulo="Del "+d1+" al "+d2; }
   try{
-    const snap = await fbDb.collection("profesionales").doc(usuarioActual.uid).collection("lotes")
+    const snapAll = await fbDb.collection("lotes_equipo")
       .where("dia",">=",d1).where("dia","<=",d2).get();
+    const docs = [];
+    snapAll.forEach(doc=>{ const x=doc.data(); if(stScope==="equipo" || x.validadorUid===usuarioActual.uid) docs.push(x); });
+    const snap = { forEach: f=> docs.forEach(x=> f({data:()=>x})) };
     let total=0, conError=0, conAviso=0, limpias=0, noLegibles=0, lotes=0;
     const porDia = {};
     snap.forEach(doc=>{
@@ -1243,7 +1315,7 @@ async function consultarStats(tipo, extra){
       porDia[x.dia] = (porDia[x.dia]||0) + (x.total||0);
     });
     const pct = n=> total? Math.round(n*100/total)+"%":"0%";
-    let html = '<div class="eyebrow" style="margin:6px 0 10px;">'+titulo+' · '+lotes+' lote'+(lotes===1?"":"s")+'</div>';
+    let html = '<div class="eyebrow" style="margin:6px 0 10px;">'+(stScope==="equipo"?"TODO EL EQUIPO":"MIS VALIDACIONES")+' · '+titulo+' · '+lotes+' lote'+(lotes===1?"":"s")+'</div>';
     html += '<div class="stGrid">'
       + stBox(total,"Formatos validados","")
       + stBox(limpias,"Sin errores ni avisos",pct(limpias),"ok")
@@ -1251,10 +1323,31 @@ async function consultarStats(tipo, extra){
       + stBox(conError,"Con errores",pct(conError),"err")
       + (noLegibles? stBox(noLegibles,"No legibles","","err"):"")
       + '</div>';
+    // Acumulado por profesional que canaliza
+    const pm = {};
+    snap.forEach(doc=>{
+      const x = doc.data();
+      for(const p of (x.porProfesional||[])){
+        const k = p.ced || (p.nom||"").toUpperCase();
+        const o = pm[k] = pm[k] || {nom:p.nom, ced:p.ced, tel:p.tel, formatos:0, conError:0, errores:0};
+        o.formatos+=p.formatos||0; o.conError+=p.conError||0; o.errores+=p.errores||0;
+        if(!o.tel && p.tel) o.tel = p.tel;
+      }
+    });
+    const profs = Object.values(pm).sort((a,b)=> b.conError-a.conError || b.errores-a.errores);
     const dias = Object.keys(porDia).sort();
     if(dias.length>1){
       html += '<div class="eyebrow" style="margin:14px 0 6px;">Por día</div><div class="stDias">'
         + dias.map(d=>'<span class="stDia">'+d+': <b>'+porDia[d]+'</b></span>').join("") + '</div>';
+    }
+    if(profs.length){
+      html += '<div class="eyebrow" style="margin:16px 0 6px;">Profesionales que canalizan — ordenado por formatos con errores</div>';
+      html += '<table class="stTable"><tr><th>#</th><th>Profesional</th><th>Cédula</th><th>Celular</th><th>Formatos</th><th>Con errores</th><th>% error</th><th>Errores</th></tr>';
+      profs.forEach((p,i)=>{
+        const pct = p.formatos? Math.round(p.conError*100/p.formatos):0;
+        html += '<tr'+(i===0&&p.conError>0?' class="peor"':'')+'><td>'+(i+1)+'</td><td>'+p.nom+'</td><td>'+(p.ced||"")+'</td><td>'+(p.tel||"")+'</td><td>'+p.formatos+'</td><td>'+p.conError+'</td><td>'+pct+'%</td><td>'+p.errores+'</td></tr>';
+      });
+      html += '</table>';
     }
     if(!total) html += '<div class="stLoad">No hay validaciones registradas en este periodo.</div>';
     out.innerHTML = html;
