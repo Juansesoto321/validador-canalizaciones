@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Validador de Calidad — Instrumento de Canalización</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
@@ -120,8 +121,8 @@
   .mchips{background:#fff; padding:10px 12px; display:flex; gap:8px; flex-wrap:wrap;}
   .mchip{font-size:12.5px; font-weight:600; border-radius:20px; padding:4px 12px; background:var(--chip); color:var(--muted); border:1px solid var(--line);}
   .mchip.on{background:var(--ok-bg); color:var(--ok); border-color:#BBD9C8;}
-  #modal,#modalRep,#modalStats{display:none; position:fixed; inset:0; background:rgba(16,36,42,.55); z-index:50; padding:30px 16px; overflow:auto;}
-  #modal.show,#modalRep.show,#modalStats.show{display:block;}
+  #modal,#modalRep,#modalStats,#modalEdit{display:none; position:fixed; inset:0; background:rgba(16,36,42,.55); z-index:50; padding:30px 16px; overflow:auto;}
+  #modal.show,#modalRep.show,#modalStats.show,#modalEdit.show{display:block;}
   .mbox{max-width:860px; margin:0 auto; background:#fff; border-radius:14px; overflow:hidden;}
   .mhead{background:var(--petrol); color:#fff; padding:16px 22px; display:flex; justify-content:space-between; align-items:center; position:sticky; top:0;}
   .mhead h2{font-size:17px;}
@@ -165,6 +166,18 @@
   .stTable tr.peor td{background:var(--err-bg); font-weight:650;}
 
   [data-scope]{opacity:.65;} [data-scope].scopeOn{opacity:1; outline:2px solid var(--petrol); outline-offset:1px;}
+
+  .fld.fed{cursor:pointer;}
+  .fld.fed:hover{outline:2px solid var(--focus); outline-offset:-2px;}
+  .fld .edPen{float:right; font-size:10px; opacity:0; transition:opacity .1s; margin-right:4px;}
+  .fld.fed:hover .edPen{opacity:.8;}
+  .pill.aj{background:#E3EDF9; color:#1D5FA8;}
+  .edIn{border:1.5px solid var(--line); border-radius:7px; padding:8px 10px; font-size:14px; width:100%;}
+  #editBody input.edIn{width:auto; min-width:120px;}
+  #editBody select.edIn, #editBody textarea.edIn{width:100%;}
+  .edDir{display:grid; grid-template-columns:repeat(4,1fr); gap:8px;}
+  .edDir label{font-size:11px; color:var(--muted); font-weight:700;}
+  .edDir input{width:100% !important; min-width:0 !important; margin-top:2px;}
 </style>
 </head>
 <body>
@@ -205,6 +218,7 @@
     <span class="eyebrow" id="lote"></span>
     <div style="display:flex; gap:10px;">
       <button class="btn ghost" id="btnClear">Limpiar lote</button>
+      <button class="btn ghost" id="btnZipAjust">Descargar ajustados</button>
       <button class="btn ghost" id="btnRepProf">Reporte por profesional</button>
       <button class="btn ghost" id="btnRepLote">Reporte de devoluciones</button>
       <button class="btn" id="btnExport">Descargar reporte (Excel)</button>
@@ -254,6 +268,16 @@
         <span>Rango: <input type="date" id="stD1"> a <input type="date" id="stD2"> <button class="btn sm" id="stRangoBtn">Ver</button></span>
       </div>
       <div id="statsOut"><div class="stLoad">Seleccione un periodo.</div></div>
+    </div>
+  </div>
+</div>
+
+
+<div id="modalEdit">
+  <div class="mbox" style="max-width:560px;">
+    <div class="mhead"><h2 id="editTitle">Ajustar</h2><div class="hbtns"><button id="editSave">Guardar ajuste</button><button id="editCancel">Cancelar</button></div></div>
+    <div class="mbody"><div id="editBody"></div>
+      <div class="mnote" style="margin-top:14px;">El ajuste corrige la casilla en la copia que valida la herramienta y quedará aplicado al descargar el formato ajustado (.xlsm). El archivo original que subió no se modifica.</div>
     </div>
   </div>
 </div>
@@ -379,7 +403,7 @@ function leerFicha(wb){
     interEnt:N(ws,"AR46"), interProg:N(ws,"AR48"), presSoc:S(ws,"AR50").toUpperCase(),
     portEBEH:S(ws,"W51"),
     sinAseg:[S(ws,"AX47"),S(ws,"AX49"),S(ws,"BH46"),S(ws,"BH48"),S(ws,"BH50")].some(x=>x!==""),
-    comentario:"",
+    comentario:"", comentarioCelda:"C55",
     quienNom:S(ws,"D61"), quienCed:S(ws,"T61"), quienProf:S(ws,"AJ61"), quienTel:S(ws,"AZ61"),
     autSi:S(ws,"F68").toLowerCase()==="x", autNo:S(ws,"J68").toLowerCase()==="x",
     acudiente:S(ws,"K72"), parentesco:S(ws,"I74"), firma:S(ws,"F76"), docAcu:S(ws,"F77"),
@@ -391,7 +415,7 @@ function leerFicha(wb){
     for(let c=2; c<=54; c++){
       const addr = XLSX.utils.encode_cell({r:r-1, c:c-1});
       const v = S(ws, addr);
-      if(v && !/de 1000/i.test(v)){ f.comentario = v; break outer; }
+      if(v && !/de 1000/i.test(v)){ f.comentario = v; f.comentarioCelda = addr; break outer; }
     }
   }
   const seg = f.dirSegs.map(x=>x.replace(/\.0$/,""));
@@ -752,9 +776,16 @@ document.getElementById("repCopy").addEventListener("click", async function(){
 
 async function procesar(fileList){
   const cfg = { version: document.getElementById("ver").value.trim(), fichaBlank: document.getElementById("fichaBlank").checked };
+  state.cfg = cfg;
   const desde = state.results.length;
-  for(const file of fileList){
-    if(!/\.(xlsm|xlsx)$/i.test(file.name)) continue;
+  const archivos = [...fileList].filter(f=>/\.(xlsm|xlsx)$/i.test(f.name));
+  const dz = document.getElementById("drop");
+  const dzHtml = dz.innerHTML;
+  let n = 0;
+  for(const file of archivos){
+    n++;
+    dz.innerHTML = '<div class="big">Validando ' + n + ' de ' + archivos.length + '…</div><div class="sub">' + esc(file.name) + '</div>';
+    await new Promise(res=>setTimeout(res, 0));
     let res;
     try{
       const buf = await file.arrayBuffer();
@@ -763,18 +794,22 @@ async function procesar(fileList){
       if(!f){ res = {file:file.name, fatal:"El archivo no contiene la hoja \u201c1\u201d del instrumento."}; }
       else{
         const v = validar(f, cfg);
-        res = {file:file.name, f, ...v, verif:{regimen:"",eapb:"",activo:"",bogota:"",nombres:"",fnac:"",direccion:"",fuente:"",obs:""}};
+        res = {file:file.name, f, ...v, origBuf:buf, ajustes:{}, ajustado:false, ui:{open:false, tab:"p-res"},
+          verif:{regimen:"",eapb:"",activo:"",bogota:"",nombres:"",fnac:"",direccion:"",fuente:"",obs:""}};
       }
     }catch(err){ res = {file:file.name, fatal:"No fue posible leer el archivo: "+err.message}; }
     state.results.push(res);
   }
+  dz.innerHTML = dzHtml;
   render();
   if(typeof registrarLote === "function") registrarLote(state.results.slice(desde));
 }
 
+const VCAMPOS = [["regimen","Régimen"],["eapb","EAPB"],["activo","Estado Activo"],["bogota","Afiliado en Bogotá"],["nombres","Nombres"],["fnac","Fecha de nacimiento"],["direccion","Dirección (Geocodificador)"]];
+function verifMalos(r){ return r.verif? VCAMPOS.filter(([k])=>r.verif[k]==="No coincide") : []; }
 function veredicto(r){
   if(r.fatal) return "err";
-  const e = r.issues.filter(i=>i.sev==="error").length;
+  const e = r.issues.filter(i=>i.sev==="error").length + verifMalos(r).length;
   const a = r.issues.filter(i=>i.sev==="adv").length;
   return e? "err" : (a? "warn" : "ok");
 }
@@ -786,18 +821,21 @@ function issuesDe(r, keys){
   return r.issues.filter(i=>keys.includes(i.celda));
 }
 function fld(r, label, valor, keys, opts){
+  const idx = r.__idx;
+  const key0 = keys && keys.length? keys[0] : null;
+  const editable = key0 && typeof EDITORES!=="undefined" && EDITORES[key0];
   const iss = issuesDe(r, keys||[]);
   const err = iss.some(i=>i.sev==="error"), adv = !err && iss.some(i=>i.sev==="adv");
   const cls = err? "fld err" : adv? "fld warn" : "fld";
   const vacio = valor===null||valor===undefined||String(valor).trim()==="";
   const msgs = iss.map(i=>`<div class="fmsg ${i.sev==="error"?"m-e":"m-a"}">${i.sev==="error"?"✖":"⚠"} ${esc(i.msg)}</div>`).join("");
-  return `<div class="${cls}${opts&&opts.wide?" wide":""}">
-    <div class="lb">${esc(label)}${keys&&keys.length?` <span class="cellref">${esc(keys[0])}</span>`:""}</div>
+  return `<div class="${cls}${opts&&opts.wide?" wide":""}${editable?" fed":""}" ${editable?`onclick="abrirEditor(${idx},'${key0}')" title="Clic para ajustar"`:""}>
+    <div class="lb">${esc(label)}${keys&&keys.length?` <span class="cellref">${esc(keys[0])}</span>`:""}${editable?' <span class="edPen">✏️</span>':""}</div>
     <div class="vl${vacio?" empty":""}">${vacio? "(vacío)" : esc(valor)}</div>${msgs}</div>`;
 }
 
-function renderFormato(r){
-  const f = r.f;
+function renderFormato(r, idx){
+  const f = r.f; r.__idx = idx;
   const ges = f.gestTxt || "";
   const eapbTxt = f.regimen===4 && f.eapb===1 ? "1 · Ninguno" : cod(CAT.eapbGeneral, f.eapb);
   const modChip = (on, nombre)=>`<span class="mchip${on?" on":""}">${on?"✔ ":""}${nombre}</span>`;
@@ -884,13 +922,13 @@ function renderFormato(r){
     </div>
     <div class="fgrid g4">
       ${fld(r, "Requiere atención EAPB", f.modEAPB, ["AC46"])}
-      ${fld(r, "Entorno que recibe", cod(CAT.entornos, f.entRecibe, ""), [])}
+      ${fld(r, "Entorno que recibe", cod(CAT.entornos, f.entRecibe, ""), ["N46"])}
       ${fld(r, "Componente que recibe", f.compRecibe===null? "" : f.compRecibe+" · "+(CAT.componentes[f.entRecibe+"-"+f.compRecibe]||"¿?"), ["N49"])}
       ${fld(r, "Entidad intersectorial", f.interEnt, ["AR46"])}
     </div>
     <div class="fgrid g4">
-      ${fld(r, "Prescripción social", f.presSoc, [])}
-      ${fld(r, "Portafolio EBE Hogar", f.portEBEH, [])}
+      ${fld(r, "Prescripción social", f.presSoc, ["AR50"])}
+      ${fld(r, "Portafolio EBE Hogar", f.portEBEH, ["W51"])}
       ${fld(r, "Sin aseguramiento", mSinA? "Con datos diligenciados":"", ["AZ13"].filter(()=>mSinA))}
       ${fld(r, "Modalidades activas", r.activas.join(", "), ["—"])}
     </div>
@@ -945,30 +983,31 @@ function render(){
     const V = r.verif;
     const selOpts = val=>["", "Coincide", "No coincide", "No verificado"].map(o=>`<option ${o===val?"selected":""}>${o}</option>`).join("");
     const selCls = val=> val==="Coincide"?"s-ok": val==="No coincide"?"s-bad":"";
-    return `<div class="card v-${v}" data-idx="${idx}">
-      <div class="card-head" onclick="this.parentElement.classList.toggle('open')">
+    return `<div class="card v-${v} ${r.ui&&r.ui.open?"open":""}" data-idx="${idx}">
+      <div class="card-head" onclick="toggleCard(${idx}, this.parentElement)">
         <div class="rail"></div>
         <div class="who">
           <div class="nm">${esc(nom)}</div>
           <div class="dc">${esc(CAT.tipoDoc[f.tipoDoc]||"Tipo doc ?")} ${esc((f.doc||"").replace(/\.0$/,""))} · ${r.edad? r.edad.anios+" años":"edad ?"} · Capt. ${fmt(f.capt)}</div>
           <div class="fl">${esc(r.file)}</div>
         </div>
-        <div class="counts">${nErr?`<span class="pill e">${nErr} error${nErr>1?"es":""}</span>`:""}${nAdv?`<span class="pill w">${nAdv} aviso${nAdv>1?"s":""}</span>`:""}</div>
+        <div class="counts">${r.ajustado?`<span class="pill aj">AJUSTADO</span>`:""}${verifMalos(r).length?`<span class="pill e">verificación ✘</span>`:""}${nErr?`<span class="pill e">${nErr} error${nErr>1?"es":""}</span>`:""}${nAdv?`<span class="pill w">${nAdv} aviso${nAdv>1?"s":""}</span>`:""}</div>
         <div class="stamp"><span class="st-top">CALIDAD</span>${stampTxt}</div>
       </div>
       <div class="card-body">
         <div class="tabs">
-          <button class="tab on" onclick="verTab(this,'p-res')">Errores y avisos ${r.issues.length?`(${r.issues.length})`:""}</button>
-          <button class="tab" onclick="verTab(this,'p-form')">Formato diligenciado</button>
-          <button class="tab" onclick="verTab(this,'p-verif')">Verificación de afiliación</button>
+          <button class="tab ${r.ui.tab==="p-res"?"on":""}" onclick="verTab(this,'p-res',${idx})">Errores y avisos ${r.issues.length?`(${r.issues.length})`:""}</button>
+          <button class="tab ${r.ui.tab==="p-form"?"on":""}" onclick="verTab(this,'p-form',${idx})">Formato diligenciado</button>
+          <button class="tab ${r.ui.tab==="p-verif"?"on":""}" onclick="verTab(this,'p-verif',${idx})">Verificación de afiliación</button>
         </div>
-        <div class="pane p-res on">
+        <div class="pane p-res ${r.ui.tab==="p-res"?"on":""}">
           <div class="eyebrow" style="margin-bottom:8px;">Modalidades activas: ${esc(r.activas.join(", ")||"ninguna")}</div>
           ${issuesHtml}
-          <div style="margin-top:12px;"><button class="btn sm" onclick="verReporte(${idx})">📄 Generar reporte de devolución</button></div>
+          <div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap;"><button class="btn sm" onclick="verReporte(${idx})">📄 Generar reporte de devolución</button>${r.ajustado?`<button class="btn sm ghost" onclick="generarXlsmAjustado(${idx})">💾 Descargar formato ajustado (.xlsm)</button>`:""}</div>
+          ${r.ajustado?"":`<div class="eyebrow" style="margin-top:10px;">💡 Para ajustar un error simple: pestaña “Formato diligenciado” y clic en la casilla.</div>`}
         </div>
-        <div class="pane p-form">${renderFormato(r)}</div>
-        <div class="pane p-verif">
+        <div class="pane p-form ${r.ui.tab==="p-form"?"on":""}">${renderFormato(r, idx)}</div>
+        <div class="pane p-verif ${r.ui.tab==="p-verif"?"on":""}">
           <div class="verif">
             <div class="verif-h"><span>VERIFICACIÓN DE AFILIACIÓN (ADRES / COMPROBADOR)</span></div>
             <div class="verif-b">
@@ -978,6 +1017,7 @@ function render(){
                 <div class="vd"><div class="k">Fecha nacimiento</div><div class="v">${fmt(f.nac)}</div></div>
                 <div class="vd"><div class="k">Régimen declarado</div><div class="v">${esc(CAT.regimen[f.regimen]||"—")}</div></div>
                 <div class="vd"><div class="k">EAPB declarada</div><div class="v">${esc(f.regimen===4&&f.eapb===1?"Ninguno":(CAT.eapbGeneral[f.eapb]||"—"))}</div></div>
+                <div class="vd"><div class="k">Dirección declarada</div><div class="v">${esc(f.dirFull||"—")}${f.barrio?"<br>"+esc(f.barrio):""}${f.loc!==null?" · "+esc(CAT.localidades[f.loc]||("Loc "+f.loc)):""}${f.upz!==null?" · UPZ "+esc(String(f.upz)):""}</div></div>
               </div>
               <div class="vbtns">
                 <button class="btn sm" onclick="abrirVerif(${idx},'adres', this)">Copiar documento y abrir ADRES</button>
@@ -985,7 +1025,7 @@ function render(){
                 <button class="btn sm ghost" onclick="abrirVerif(${idx},'geo', this)">Copiar dirección y abrir Geocodificador</button>
               </div>
               <div class="vchecks">
-                ${[["regimen","Régimen"],["eapb","EAPB"],["activo","Estado Activo"],["bogota","Afiliado en Bogotá"],["nombres","Nombres"],["fnac","Fecha de nacimiento"],["direccion","Dirección (Geocodificador)"]].map(([k,lbl])=>
+                ${VCAMPOS.map(([k,lbl])=>
                   `<div class="vc"><span>${lbl}</span><select class="${selCls(V[k])}" onchange="setVerif(${idx},'${k}',this.value); this.className=this.value==='Coincide'?'s-ok':this.value==='No coincide'?'s-bad':'';">${selOpts(V[k])}</select></div>`).join("")}
                 <div class="vc"><span>Verificado en</span><select onchange="setVerif(${idx},'fuente',this.value)">${["","ADRES","Comprobador","Ambas"].map(o=>`<option ${o===V.fuente?"selected":""}>${o}</option>`).join("")}</select></div>
               </div>
@@ -999,14 +1039,19 @@ function render(){
   }).join("");
 }
 
-function verTab(btn, cls){
+function verTab(btn, cls, idx){
   const body = btn.closest(".card-body");
   body.querySelectorAll(".tab").forEach(t=>t.classList.remove("on"));
   btn.classList.add("on");
   body.querySelectorAll(".pane").forEach(p=>p.classList.toggle("on", p.classList.contains(cls)));
+  if(state.results[idx]) state.results[idx].ui.tab = cls;
+}
+function toggleCard(idx, card){
+  card.classList.toggle("open");
+  if(state.results[idx]) state.results[idx].ui.open = card.classList.contains("open");
 }
 
-function setVerif(idx,k,val){ state.results[idx].verif[k]=val; }
+function setVerif(idx,k,val){ state.results[idx].verif[k]=val; render(); }
 
 async function abrirVerif(idx, sitio, btn){
   const f = state.results[idx].f;
@@ -1042,7 +1087,8 @@ function bloqueArchivo(r, n){
   const doc = (CAT.tipoDoc[f.tipoDoc]||"") + " " + (f.doc||"").replace(/\.0$/,"");
   const errs = r.issues.filter(i=>i.sev==="error");
   const advs = r.issues.filter(i=>i.sev==="adv");
-  const est = errs.length? "DEVUELTO PARA CORRECCIÓN" : advs.length? "ACEPTADO CON OBSERVACIONES" : "VALIDADO SIN OBSERVACIONES";
+  const vMal = verifMalos(r);
+  const est = (errs.length||vMal.length)? "DEVUELTO PARA CORRECCIÓN" : advs.length? "ACEPTADO CON OBSERVACIONES" : "VALIDADO SIN OBSERVACIONES";
   let t = (n!==undefined? n+") " : "") + "Usuario: " + nom + " — " + doc.trim() + "\n";
   t += "   Archivo: " + r.file + " · Fecha de captación: " + fmt(f.capt) + "\n";
   t += "   Resultado: " + est + (errs.length||advs.length? " ("+errs.length+" errores, "+advs.length+" avisos)":"") + "\n";
@@ -1055,9 +1101,20 @@ function bloqueArchivo(r, n){
       errs.filter(i=>i.sec===s).forEach(i=>{ k++; t += "     " + k + ". (casilla " + i.celda + ") " + i.msg + "\n"; });
     }
   }
+  if(vMal.length){
+    t += "   Inconsistencias en la verificación de afiliación" + (r.verif.fuente? " (verificado en "+r.verif.fuente+")" : "") + ":\n";
+    vMal.forEach(([k,lbl])=> t += "     ✘ " + lbl + ": NO COINCIDE con lo declarado en el formato.\n");
+    if(r.verif.obs) t += "     Observación de la verificación: " + r.verif.obs + "\n";
+  } else if(r.verif && r.verif.obs){
+    t += "   Observación de la verificación: " + r.verif.obs + "\n";
+  }
   if(advs.length){
     t += "   Avisos (no impiden la digitación, se solicita revisar):\n";
     advs.forEach(i=> t += "     • [" + i.celda + " · " + i.sec + "] " + i.msg + "\n");
+  }
+  if(r.ajustado){
+    const n = Object.keys(r.ajustes||{}).length;
+    t += "   Nota: el formato fue AJUSTADO durante la validación (" + n + " casilla(s) corregida(s)); se adjunta/descarga la versión ajustada.\n";
   }
   return t;
 }
@@ -1079,9 +1136,10 @@ function verReporte(idx){
 }
 function reporteLote(){
   if(!state.results.length) return;
-  const conError = state.results.filter(r=>!r.fatal && r.issues.some(i=>i.sev==="error"));
-  const soloAviso = state.results.filter(r=>!r.fatal && !r.issues.some(i=>i.sev==="error") && r.issues.some(i=>i.sev==="adv"));
-  const limpios = state.results.filter(r=>!r.fatal && !r.issues.length);
+  const esDev = r => r.issues.some(i=>i.sev==="error") || verifMalos(r).length>0;
+  const conError = state.results.filter(r=>!r.fatal && esDev(r));
+  const soloAviso = state.results.filter(r=>!r.fatal && !esDev(r) && r.issues.some(i=>i.sev==="adv"));
+  const limpios = state.results.filter(r=>!r.fatal && !esDev(r) && !r.issues.length);
   const fatales = state.results.filter(r=>r.fatal);
   let t = cabecera("REPORTE DE DEVOLUCIONES — LOTE DEL " + HOY());
   t += "Formatos verificados: " + state.results.length + " · Validados: " + limpios.length + " · Con observaciones: " + soloAviso.length + " · Devueltos: " + conError.length + (fatales.length? " · No legibles: "+fatales.length : "") + "\n\n";
@@ -1154,10 +1212,10 @@ function reporteProfesionales(){
 
 function exportar(){
   if(!state.results.length) return;
-  const resumen = [["Archivo","Usuario","Tipo documento","N° documento","Edad","Estado calidad","Errores","Advertencias","Régimen","EAPB","V. Régimen","V. EAPB","V. Activo","V. Bogotá","V. Nombres","V. Fecha nac.","V. Dirección","Verificado en","Observación verificación","Detalle de calidad"]];
+  const resumen = [["Archivo","Usuario","Tipo documento","N° documento","Edad","Estado calidad","Errores","Advertencias","Régimen","EAPB","V. Régimen","V. EAPB","V. Activo","V. Bogotá","V. Nombres","V. Fecha nac.","V. Dirección","Verificado en","Observación verificación","Detalle de calidad","Fecha nacimiento","Dirección completa","Barrio","UPZ","Localidad","Rutas activas"]];
   const detalle = [["Archivo","Usuario","Documento","Severidad","Sección","Casilla","Descripción"]];
   for(const r of state.results){
-    if(r.fatal){ resumen.push([r.file,"","","","","NO LEGIBLE","","","","","","","","","","","","",r.fatal]); continue; }
+    if(r.fatal){ resumen.push([r.file,"","","","","NO LEGIBLE","","","","","","","","","","","","","",r.fatal,"","","","","",""]); continue; }
     const f=r.f, nom=[f.nom1,f.nom2,f.ape1,f.ape2].filter(Boolean).join(" ");
     const nErr=r.issues.filter(i=>i.sev==="error").length, nAdv=r.issues.filter(i=>i.sev==="adv").length;
     const est = nErr? "CON ERRORES" : nAdv? "CON OBSERVACIONES" : "VALIDADO";
@@ -1165,7 +1223,8 @@ function exportar(){
     const V=r.verif;
     resumen.push([r.file, nom, CAT.tipoDoc[f.tipoDoc]||"", (f.doc||"").replace(/\.0$/,""), r.edad?r.edad.anios:"", est, nErr, nAdv,
       CAT.regimen[f.regimen]||"", (f.regimen===4&&f.eapb===1)?"Ninguno":(CAT.eapbGeneral[f.eapb]||""),
-      V.regimen,V.eapb,V.activo,V.bogota,V.nombres,V.fnac,V.direccion||"",V.fuente,V.obs, det]);
+      V.regimen,V.eapb,V.activo,V.bogota,V.nombres,V.fnac,V.direccion||"",V.fuente,V.obs, det,
+      fmt(f.nac), f.dirFull||"", f.barrio||"", f.upz??"", f.loc!==null?(f.loc+" - "+(CAT.localidades[f.loc]||"")):"", f.rutas.filter(x=>x.r!==null).map(x=>x.r).join(", ")]);
     for(const i of r.issues) detalle.push([r.file, nom, (f.doc||"").replace(/\.0$/,""), i.sev==="error"?"ERROR":"ADVERTENCIA", i.sec, i.celda, i.msg]);
   }
   const wb = XLSX.utils.book_new();
@@ -1358,6 +1417,237 @@ async function consultarStats(tipo, extra){
 function stBox(n, l, p, cls){
   return '<div class="stat '+(cls||"")+'"><div class="n">'+n+(p?' <span style="font-size:14px;color:var(--muted);">('+p+')</span>':'')+'</div><div class="l">'+l+'</div></div>';
 }
+
+</script>
+<script>
+/* ================= AJUSTES EN PÁGINA Y DESCARGA DE XLSM ================= */
+function selOpt(dic){ return dic; }
+const SI_NO = {"1":"Si","2":"No"};
+
+function mkEditores(){
+  const E = {};
+  const txt = (cell, label, prop) => E[cell] = {label, type:"text", get:f=>String(f[prop]||"").replace(/\.0$/,""), apply:(f,v)=>{f[prop]=v;}, cells:(f,v)=>({[cell]:{v, t:"s"}})};
+  const num = (cell, label, prop) => E[cell] = {label, type:"num", get:f=>f[prop]===null?"":String(f[prop]), apply:(f,v)=>{f[prop]=v===""?null:Number(v);}, cells:(f,v)=>({[cell]:{v, t:"n"}})};
+  const sel = (cell, label, prop, dic) => E[cell] = {label, type:"select", options:dic, get:f=>f[prop]===null?"":String(f[prop]), apply:(f,v)=>{f[prop]=v===""?null:Number(v);}, cells:(f,v)=>({[cell]:{v, t:"n"}})};
+  const selTxt = (cell, label, prop, dic) => E[cell] = {label, type:"selectTxt", options:dic, get:f=>String(f[prop]||""), apply:(f,v)=>{f[prop]=v;}, cells:(f,v)=>({[cell]:{v, t:"s"}})};
+  const fecha = (key, label, prop, cd, cm, cy) => E[key] = {label, type:"fecha",
+    get:f=>[f[prop].d??"", f[prop].m??"", f[prop].y??""],
+    apply:(f,vals)=>{f[prop]={d:vals[0]===""?null:+vals[0], m:vals[1]===""?null:+vals[1], y:vals[2]===""?null:+vals[2]};},
+    cells:(f,vals)=>({[cd]:{v:vals[0],t:"n"}, [cm]:{v:vals[1],t:"n"}, [cy]:{v:vals[2],t:"n"}})};
+
+  txt("AL7","Nº Ficha","ficha");
+  fecha("G7-K7","Fecha de captación (día / mes / año)","capt","G7","I7","K7");
+  fecha("X7-AB7","Fecha de generación (día / mes / año)","gen","X7","Z7","AB7");
+  txt("C11","1er. nombre","nom1"); txt("O11","2do. nombre","nom2");
+  txt("AA11","1er. apellido","ape1"); txt("AM11","2do. apellido","ape2");
+  sel("BB11","Sexo","sexo",CAT.sexo); sel("BI11","Género","genero",CAT.genero);
+  sel("J13","Tipo de documento","tipoDoc",CAT.tipoDoc); txt("R13","Nº documento","doc");
+  fecha("AJ13-AN13","Fecha de nacimiento (día / mes / año)","nac","AJ13","AL13","AN13");
+  sel("AZ13","Régimen de afiliación","regimen",CAT.regimen); sel("BI13","EAPB","eapb",CAT.eapbGeneral);
+  sel("AJ15","Momento curso de vida","mcv",CAT.momentoCursoVida);
+  txt("H17","Nacionalidad (código de 3 letras)","nacion");
+  sel("N17","Estado civil","estCivil",CAT.estadoCivil);
+  sel("S17","Etnia","etnia",CAT.etnia);
+  sel("AE17","Población especial / diferencial","pobEsp",CAT.poblacionEspecial);
+  E["AK17"] = {label:"Gestante y semanas", type:"gest",
+    get:f=>[f.gestante.replace(/\.0$/,""), f.edadGest===null?"":String(f.edadGest)],
+    apply:(f,vals)=>{ f.gestante=vals[0]; const g=vals[0].toLowerCase();
+      f.gestSi = g==="1"||g==="si"||g==="sí"; f.gestNo = g==="2"||g==="no";
+      f.gestTxt = f.gestSi? "1 · Si" : f.gestNo? "2 · No" : vals[0];
+      f.edadGest = vals[1]===""? null : Number(vals[1]); },
+    cells:(f,vals)=>({AK17:{v:vals[0],t:"n"}, AT17:{v:vals[1],t:"n"}})};
+  sel("BC17","Nivel educativo","nivEdu",CAT.nivelEducativo);
+  sel("BI17","Ocupación","ocup",CAT.ocupacion);
+  sel("F23","Zona","zona",{"1":"Urbana","2":"Rural"});
+  sel("M23","Localidad","loc",CAT.localidades);
+  num("T23","UPZ (número)","upz");
+  txt("AC23","Barrio / vereda","barrio");
+  E["C21"] = {label:"Dirección (segmentos del formato)", type:"dir",
+    get:f=>f.dirSegs.map(s=>s.replace(/\.0$/,"")),
+    apply:(f,vals)=>{ f.dirSegs=vals.slice(); f.via=vals[0]; f.viaNum=vals[1];
+      const p1=vals.slice(0,6).filter(Boolean).join(" "), p2=vals.slice(6,10).filter(Boolean).join(" ");
+      const p3=vals.slice(10,12).filter(Boolean).join(" "), p4=vals.slice(12,16).filter(Boolean).join(" ");
+      f.dirFull = p1+(p2?" # "+p2:"")+(p3?" - "+p3:"")+(p4?" "+p4:""); },
+    cells:(f,vals)=>{ const dirs=["C21","G21","J21","M21","P21","S21","X21","AA21","AD21","AG21","AJ21","AM21","AT21","AZ21","BC21","BI21"];
+      const o={}; dirs.forEach((a,i)=>o[a]={v:vals[i], t:"s"}); return o; }};
+  E["AS23"] = {label:"Coordenadas (latitud / longitud)", type:"coord",
+    get:f=>[f.lat, f.lon],
+    apply:(f,vals)=>{f.lat=vals[0]; f.lon=vals[1];},
+    cells:(f,vals)=>({AS23:{v:vals[0],t:"s"}, BD23:{v:vals[1],t:"s"}})};
+  txt("G25","Teléfono 1","tel1"); txt("V25","Teléfono 2","tel2"); txt("AM25","Correo electrónico","correo");
+  sel("Y29","Entorno que genera","entGen",CAT.entornos); num("AT29","Componente que genera (código)","compGen");
+  for(const fila of [34,36,38]){
+    const i = fila===34?0:fila===36?1:2;
+    E["S"+fila] = {label:"Ruta "+(i+1), type:"select", options:CAT.rutas, get:f=>f.rutas[i].r===null?"":String(f.rutas[i].r), apply:(f,v)=>{f.rutas[i].r=v===""?null:Number(v);}, cells:(f,v)=>({["S"+fila]:{v,t:"n"}})};
+    E["AF"+fila] = {label:"Código finalidad (fila "+(i+1)+", solo Ruta 1)", type:"num", get:f=>f.rutas[i].f===null?"":String(f.rutas[i].f), apply:(f,v)=>{f.rutas[i].f=v===""?null:Number(v);}, cells:(f,v)=>({["AF"+fila]:{v,t:"n"}})};
+    E["AT"+fila] = {label:"Motivo / riesgo (fila "+(i+1)+")", type:"num", get:f=>f.rutas[i].m===null?"":String(f.rutas[i].m), apply:(f,v)=>{f.rutas[i].m=v===""?null:Number(v);}, cells:(f,v)=>({["AT"+fila]:{v,t:"n"}})};
+  }
+  selTxt("AC46","Requiere atención EAPB","modEAPB",{"Si":"Si","No":"No"});
+  sel("N46","Entorno que recibe","entRecibe",CAT.entornos);
+  num("N49","Componente que recibe (código)","compRecibe");
+  num("AR46","Entidad intersectorial (código)","interEnt");
+  selTxt("AR50","Prescripción social","presSoc",{"SI":"SI","NO":"NO"});
+  txt("W51","Portafolio EBE Hogar","portEBEH");
+  E["C55"] = {label:"Comentarios y observaciones", type:"textarea",
+    get:f=>f.comentario, apply:(f,v)=>{f.comentario=v;},
+    cells:(f,v)=>({[f.comentarioCelda||"C55"]:{v, t:"s"}})};
+  txt("D61","Nombre de quien canaliza","quienNom");
+  txt("T61","Cédula de quien canaliza","quienCed");
+  txt("AJ61","Profesión de quien canaliza","quienProf");
+  txt("AZ61","Teléfono de quien canaliza","quienTel");
+  E["F68"] = {label:"Autorización de manejo de datos", type:"select", options:{"1":"Si","2":"No"},
+    get:f=>f.autSi?"1":f.autNo?"2":"",
+    apply:(f,v)=>{f.autSi=v==="1"; f.autNo=v==="2";},
+    cells:(f,v)=>({F68:{v:v==="1"?"x":"", t:"s"}, J68:{v:v==="2"?"x":"", t:"s"}})};
+  selTxt("K72","Cuenta con acudiente","acudiente",{"Si":"Si","No":"No"});
+  txt("I74","Parentesco del acudiente","parentesco");
+  txt("F76","Firma (nombre) del acudiente","firma");
+  txt("F77","Documento del acudiente","docAcu");
+  return E;
+}
+const EDITORES = mkEditores();
+
+let editCtx = null; // {idx, key}
+function abrirEditor(idx, key){
+  const ed = EDITORES[key]; if(!ed) return;
+  const r = state.results[idx]; if(!r || r.fatal) return;
+  editCtx = {idx, key};
+  document.getElementById("editTitle").textContent = "Ajustar: " + ed.label;
+  const cur = ed.get(r.f);
+  let html = "";
+  const inp = (v,ph,w)=>`<input class="edIn" style="${w?'width:'+w+'px;':''}" value="${esc(v??"")}" placeholder="${ph||""}">`;
+  if(ed.type==="text"||ed.type==="num") html = inp(cur);
+  else if(ed.type==="textarea") html = `<textarea class="edIn" rows="4">${esc(cur)}</textarea>`;
+  else if(ed.type==="select"||ed.type==="selectTxt"){
+    html = `<select class="edIn"><option value="">(vacío)</option>` +
+      Object.entries(ed.options).map(([k,v])=>`<option value="${esc(k)}" ${String(cur)===String(k)?"selected":""}>${esc(k)} · ${esc(v)}</option>`).join("") + `</select>`;
+  }
+  else if(ed.type==="fecha") html = inp(cur[0],"día",70)+" / "+inp(cur[1],"mes",70)+" / "+inp(cur[2],"año",90);
+  else if(ed.type==="gest") html = `<select class="edIn" style="width:140px;"><option value="">(vacío)</option><option value="1" ${cur[0]==="1"?"selected":""}>1 · Si</option><option value="2" ${cur[0]==="2"?"selected":""}>2 · No</option></select> Semanas: `+inp(cur[1],"1-42",80);
+  else if(ed.type==="coord") html = "Lat: "+inp(cur[0],"",140)+" Lon: "+inp(cur[1],"",140);
+  else if(ed.type==="dir"){
+    const lbl = ["Vía","Núm","Letra","Bis","Letra","Cuadr.","Núm","Letra","Bis","Letra","Núm","Cuadr.","Compl. 1","Núm","Compl. 2","Núm"];
+    html = '<div class="edDir">' + cur.map((v,i)=>`<label>${lbl[i]}${inp(v,"",70)}</label>`).join("") + '</div>';
+  }
+  document.getElementById("editBody").innerHTML = html;
+  document.getElementById("modalEdit").classList.add("show");
+}
+
+function guardarEdicion(){
+  if(!editCtx) return;
+  const {idx, key} = editCtx;
+  const ed = EDITORES[key], r = state.results[idx];
+  const ins = [...document.querySelectorAll("#editBody .edIn")];
+  const vals = ins.map(i=>i.value.trim());
+  const v = (ed.type==="fecha"||ed.type==="gest"||ed.type==="coord"||ed.type==="dir")? vals : vals[0];
+  ed.apply(r.f, v);
+  Object.assign(r.ajustes = r.ajustes||{}, ed.cells(r.f, v));
+  r.ajustado = true;
+  const nv = validar(r.f, state.cfg || {version:"V20-B", fichaBlank:true});
+  r.issues = nv.issues; r.edad = nv.edad; r.activas = nv.activas;
+  document.getElementById("modalEdit").classList.remove("show");
+  editCtx = null;
+  render();
+}
+
+/* --- Generación del xlsm ajustado (parche XML que conserva macros, estilos y fórmulas) --- */
+function colNum(col){ let n=0; for(const ch of col) n = n*26 + (ch.charCodeAt(0)-64); return n; }
+function xmlEsc(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+
+function setCellXml(xml, addr, val, tipo){
+  const m = addr.match(/^([A-Z]+)(\d+)$/); if(!m) return xml;
+  const [_, col, fila] = m;
+  const esNum = tipo==="n" && val!=="" && !isNaN(Number(val));
+  let inner, tAttr="";
+  if(val===""){ inner = ""; }
+  else if(esNum){ inner = `<v>${Number(val)}</v>`; }
+  else { tAttr = ' t="inlineStr"'; inner = `<is><t xml:space="preserve">${xmlEsc(val)}</t></is>`; }
+  const cellRe = new RegExp(`<c r="${addr}"([^>]*?)(?:/>|>[\\s\\S]*?</c>)`);
+  const cm = xml.match(cellRe);
+  if(cm){
+    let attrs = cm[1].replace(/ t="[^"]*"/,"");
+    const nuevo = inner? `<c r="${addr}"${attrs}${tAttr}>${inner}</c>` : `<c r="${addr}"${attrs.replace(/ t="[^"]*"/,"")}/>`;
+    return xml.replace(cellRe, nuevo.replace(/\$/g,"$$$$"));
+  }
+  if(!inner) return xml;
+  // celda no existe: insertar en la fila en orden de columna
+  const rowRe = new RegExp(`<row r="${fila}"([^>]*?)(/>|>)`);
+  const rm = xml.match(rowRe);
+  const nuevaCelda = `<c r="${addr}"${tAttr}>${inner}</c>`;
+  if(!rm) return xml.replace("</sheetData>", `<row r="${fila}">${nuevaCelda}</row></sheetData>`);
+  if(rm[2]==="/>") return xml.replace(rowRe, `<row r="${fila}"$1>${nuevaCelda}</row>`.replace(/\$/g,"$$$$").replace("$$1","$1"));
+  // fila abierta: buscar posición
+  const rowStart = xml.indexOf(rm[0]);
+  const rowEnd = xml.indexOf("</row>", rowStart);
+  let seg = xml.slice(rowStart, rowEnd);
+  const miCol = colNum(col);
+  const celdas = [...seg.matchAll(/<c r="([A-Z]+)(\d+)"/g)];
+  let insertAt = rowEnd;
+  for(const c of celdas){
+    if(colNum(c[1]) > miCol){ insertAt = rowStart + c.index; break; }
+  }
+  return xml.slice(0, insertAt) + nuevaCelda + xml.slice(insertAt);
+}
+
+async function generarXlsmAjustado(idx){
+  const r = state.results[idx];
+  if(!r || !r.origBuf){ alert("No se conserva el archivo original de este formato."); return; }
+  try{
+    const zip = await JSZip.loadAsync(r.origBuf);
+    const wbXml = await zip.file("xl/workbook.xml").async("string");
+    const sh = wbXml.match(/<sheet[^>]*name="1"[^>]*r:id="(rId\d+)"/) || wbXml.match(/<sheet[^>]*r:id="(rId\d+)"[^>]*name="1"/);
+    if(!sh) throw new Error("No se encontró la hoja 1 en el libro.");
+    const rels = await zip.file("xl/_rels/workbook.xml.rels").async("string");
+    const tg = rels.match(new RegExp(`Id="${sh[1]}"[^>]*Target="([^"]+)"`)) || rels.match(new RegExp(`Target="([^"]+)"[^>]*Id="${sh[1]}"`));
+    if(!tg) throw new Error("No se encontró la ruta de la hoja.");
+    const path = "xl/" + tg[1].replace(/^\//,"").replace(/^xl\//,"");
+    let xml = await zip.file(path).async("string");
+    for(const [addr, cfg] of Object.entries(r.ajustes||{})) xml = setCellXml(xml, addr, String(cfg.v??""), cfg.t);
+    // forzar recálculo al abrir
+    xml = xml.replace(/<v>[^<]*<\/v>(?=<\/c>)/g, m=>m); // no-op seguro
+    zip.file(path, xml);
+    let wb2 = wbXml;
+    if(!/calcPr/.test(wb2)) wb2 = wb2.replace("</workbook>", '<calcPr fullCalcOnLoad="1"/></workbook>');
+    else wb2 = wb2.replace(/<calcPr[^>]*\/>/, '<calcPr fullCalcOnLoad="1"/>');
+    zip.file("xl/workbook.xml", wb2);
+    const blob = await zip.generateAsync({type:"blob", mimeType:"application/vnd.ms-excel.sheet.macroEnabled.12", compression:"DEFLATE"});
+    const nombre = r.file.replace(/\.(xlsm|xlsx)$/i,"") + "_AJUSTADO.xlsm";
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = nombre; a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href), 5000);
+  }catch(e){ alert("No fue posible generar el archivo ajustado: " + e.message); }
+}
+
+async function descargarAjustadosZip(){
+  const ajustados = state.results.map((r,i)=>({r,i})).filter(x=>x.r.ajustado && x.r.origBuf);
+  if(!ajustados.length){ alert("No hay formatos ajustados en este lote."); return; }
+  const bundle = new JSZip();
+  for(const {r,i} of ajustados){
+    const zip = await JSZip.loadAsync(r.origBuf);
+    const wbXml = await zip.file("xl/workbook.xml").async("string");
+    const sh = wbXml.match(/<sheet[^>]*name="1"[^>]*r:id="(rId\d+)"/) || wbXml.match(/<sheet[^>]*r:id="(rId\d+)"[^>]*name="1"/);
+    const rels = await zip.file("xl/_rels/workbook.xml.rels").async("string");
+    const tg = rels.match(new RegExp(`Id="${sh[1]}"[^>]*Target="([^"]+)"`)) || rels.match(new RegExp(`Target="([^"]+)"[^>]*Id="${sh[1]}"`));
+    const path = "xl/" + tg[1].replace(/^\//,"").replace(/^xl\//,"");
+    let xml = await zip.file(path).async("string");
+    for(const [addr, cfg] of Object.entries(r.ajustes||{})) xml = setCellXml(xml, addr, String(cfg.v??""), cfg.t);
+    zip.file(path, xml);
+    let wb2 = wbXml;
+    if(!/calcPr/.test(wb2)) wb2 = wb2.replace("</workbook>", '<calcPr fullCalcOnLoad="1"/></workbook>');
+    zip.file("xl/workbook.xml", wb2);
+    const blob = await zip.generateAsync({type:"blob", compression:"DEFLATE"});
+    bundle.file(r.file.replace(/\.(xlsm|xlsx)$/i,"") + "_AJUSTADO.xlsm", blob);
+  }
+  const final = await bundle.generateAsync({type:"blob", compression:"DEFLATE"});
+  const d=new Date(), stamp=d.getFullYear()+String(d.getMonth()+1).padStart(2,"0")+String(d.getDate()).padStart(2,"0");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(final); a.download = "Formatos_Ajustados_"+stamp+".zip"; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 5000);
+}
+document.getElementById("btnZipAjust").addEventListener("click", descargarAjustadosZip);
+document.getElementById("editCancel").addEventListener("click", ()=>{document.getElementById("modalEdit").classList.remove("show"); editCtx=null;});
+document.getElementById("editSave").addEventListener("click", guardarEdicion);
+document.getElementById("modalEdit").addEventListener("click", e=>{ if(e.target.id==="modalEdit"){ e.target.classList.remove("show"); editCtx=null; } });
 
 </script>
 </body>
